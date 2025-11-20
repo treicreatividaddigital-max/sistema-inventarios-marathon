@@ -379,6 +379,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/garment-types/by-category/:categoryId", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const types = await storage.getGarmentTypesByCategory(req.params.categoryId);
+      res.json(types);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/garment-types/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const type = await storage.getGarmentType(req.params.id);
@@ -513,6 +522,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/lots", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const lots = await storage.getAllLots();
+      res.json(lots);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/lots/by-collection/:collectionId", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const lots = await storage.getLotsByCollection(req.params.collectionId);
       res.json(lots);
     } catch (error) {
       next(error);

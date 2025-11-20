@@ -1,9 +1,12 @@
 import { useState } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
+import { insertGarmentSchema, type InsertGarment, type Category, type GarmentType, type Collection, type Lot, type Rack } from "@shared/schema";
+import { useQuery, useMutation } from "@tanstack/react-query";
+import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
 import { ArrowLeft, ArrowRight, Check, Loader2, Upload } from "lucide-react";
-import { Link } from "wouter";
+import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -32,20 +35,20 @@ import {
 import { Progress } from "@/components/ui/progress";
 import { useToast } from "@/hooks/use-toast";
 
-const garmentSchema = z.object({
+// Extended schema for form validation
+const formSchema = insertGarmentSchema.extend({
   code: z.string().min(3, "Code must be at least 3 characters"),
   size: z.string().min(1, "Size is required"),
   color: z.string().min(1, "Color is required"),
   gender: z.enum(["MALE", "FEMALE", "UNISEX"]),
-  categoryId: z.string().min(1, "Category is required"),
-  garmentTypeId: z.string().min(1, "Type is required"),
-  collectionId: z.string().min(1, "Collection is required"),
-  lotId: z.string().min(1, "Lot is required"),
-  rackId: z.string().optional(),
-  photo: z.instanceof(File).optional(),
-});
+  status: z.enum(["IN_STOCK", "IN_USE", "IN_WASH", "LOST", "DAMAGED", "RETIRED"]),
+  categoryId: z.string().uuid("Must select a category"),
+  garmentTypeId: z.string().uuid("Must select a type"),
+  collectionId: z.string().uuid("Must select a collection"),
+  lotId: z.string().uuid("Must select a lot"),
+}).omit({ createdById: true, qrUrl: true });
 
-type GarmentForm = z.infer<typeof garmentSchema>;
+type FormValues = z.infer<typeof formSchema>;
 
 const STEPS = [
   { id: 1, title: "Basic Info", description: "Product details" },
@@ -56,26 +59,79 @@ const STEPS = [
 
 export default function CuratorNewGarmentPage() {
   const [currentStep, setCurrentStep] = useState(1);
-  const [isSubmitting, setIsSubmitting] = useState(false);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const { toast } = useToast();
+  const [, navigate] = useLocation();
 
-  const form = useForm<GarmentForm>({
-    resolver: zodResolver(garmentSchema),
+  // Load categories
+  const { data: categories = [], isLoading: categoriesLoading } = useQuery<Category[]>({
+    queryKey: ["/api/categories"],
+  });
+
+  // Load collections
+  const { data: collections = [], isLoading: collectionsLoading } = useQuery<Collection[]>({
+    queryKey: ["/api/collections"],
+  });
+
+  // Load racks
+  const { data: racks = [], isLoading: racksLoading } = useQuery<Rack[]>({
+    queryKey: ["/api/racks"],
+  });
+
+  const form = useForm<FormValues>({
+    resolver: zodResolver(formSchema),
     defaultValues: {
       code: "",
       size: "",
       color: "",
       gender: "UNISEX",
+      status: "IN_STOCK",
       categoryId: "",
       garmentTypeId: "",
       collectionId: "",
       lotId: "",
-      rackId: "",
+      rackId: "none",
+      photoUrl: undefined,
     },
   });
 
   const progress = (currentStep / STEPS.length) * 100;
+
+  // Watch categoryId to load garment types
+  const selectedCategoryId = form.watch("categoryId");
+  const { data: garmentTypes = [] } = useQuery<GarmentType[]>({
+    queryKey: ["/api/garment-types/by-category", selectedCategoryId],
+    enabled: !!selectedCategoryId,
+  });
+
+  // Watch collectionId to load lots
+  const selectedCollectionId = form.watch("collectionId");
+  const { data: lots = [] } = useQuery<Lot[]>({
+    queryKey: ["/api/lots/by-collection", selectedCollectionId],
+    enabled: !!selectedCollectionId,
+  });
+
+  // Create garment mutation
+  const createGarmentMutation = useMutation({
+    mutationFn: async (data: FormValues) => {
+      return await apiRequest("POST", "/api/garments", data);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Garment created successfully",
+        description: "The garment has been added to inventory",
+      });
+      queryClient.invalidateQueries({ queryKey: ["/api/garments"] });
+      navigate("/curator");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error creating garment",
+        description: error.message || "Please try again",
+        variant: "destructive",
+      });
+    },
+  });
 
   const nextStep = () => {
     if (currentStep < STEPS.length) {
@@ -89,46 +145,28 @@ export default function CuratorNewGarmentPage() {
     }
   };
 
-  const onSubmit = async (data: GarmentForm) => {
-    setIsSubmitting(true);
-    try {
-      // TODO: Connect to backend API
-      console.log("Garment data:", data);
-      toast({
-        title: "Garment created successfully",
-        description: `Code: ${data.code}`,
-      });
-    } catch (error) {
-      toast({
-        title: "Error creating garment",
-        description: "Please try again",
-        variant: "destructive",
-      });
-    } finally {
-      setIsSubmitting(false);
-    }
+  const onSubmit = (data: FormValues) => {
+    createGarmentMutation.mutate(data);
   };
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      form.setValue("photo", file);
       const reader = new FileReader();
       reader.onloadend = () => {
         setPhotoPreview(reader.result as string);
+        form.setValue("photoUrl", reader.result as string);
       };
       reader.readAsDataURL(file);
     }
   };
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto">
+    <div className="space-y-6 max-w-3xl mx-auto p-6">
       <div className="flex items-center gap-4">
-        <Link href="/dashboard">
-          <Button variant="ghost" size="icon" data-testid="button-back">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-        </Link>
+        <Button variant="ghost" size="icon" onClick={() => navigate("/curator")} data-testid="button-back">
+          <ArrowLeft className="h-5 w-5" />
+        </Button>
         <div>
           <h1 className="text-3xl font-semibold">New Garment</h1>
           <p className="text-muted-foreground mt-2">
@@ -228,7 +266,7 @@ export default function CuratorNewGarmentPage() {
                           <FormLabel>Size</FormLabel>
                           <Select
                             onValueChange={field.onChange}
-                            defaultValue={field.value}
+                            value={field.value}
                           >
                             <FormControl>
                               <SelectTrigger data-testid="select-size">
@@ -275,11 +313,11 @@ export default function CuratorNewGarmentPage() {
                           <FormLabel>Gender</FormLabel>
                           <Select
                             onValueChange={field.onChange}
-                            defaultValue={field.value}
+                            value={field.value}
                           >
                             <FormControl>
                               <SelectTrigger data-testid="select-gender">
-                                <SelectValue placeholder="Select gender" />
+                                <SelectValue />
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
@@ -293,6 +331,32 @@ export default function CuratorNewGarmentPage() {
                       )}
                     />
                   </div>
+
+                  <FormField
+                    control={form.control}
+                    name="status"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Status</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-status">
+                              <SelectValue />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="IN_STOCK">In Stock</SelectItem>
+                            <SelectItem value="IN_USE">In Use</SelectItem>
+                            <SelectItem value="IN_WASH">In Wash</SelectItem>
+                            <SelectItem value="LOST">Lost</SelectItem>
+                            <SelectItem value="DAMAGED">Damaged</SelectItem>
+                            <SelectItem value="RETIRED">Retired</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </>
               )}
 
@@ -306,7 +370,7 @@ export default function CuratorNewGarmentPage() {
                         <FormLabel>Category</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value}
                         >
                           <FormControl>
                             <SelectTrigger data-testid="select-category">
@@ -314,9 +378,17 @@ export default function CuratorNewGarmentPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="placeholder">
-                              No categories available
-                            </SelectItem>
+                            {categoriesLoading ? (
+                              <SelectItem value="loading" disabled>Loading...</SelectItem>
+                            ) : categories.length === 0 ? (
+                              <SelectItem value="empty" disabled>No categories available</SelectItem>
+                            ) : (
+                              categories.map((cat) => (
+                                <SelectItem key={cat.id} value={cat.id}>
+                                  {cat.name}
+                                </SelectItem>
+                              ))
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -332,7 +404,8 @@ export default function CuratorNewGarmentPage() {
                         <FormLabel>Garment Type</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value}
+                          disabled={!selectedCategoryId}
                         >
                           <FormControl>
                             <SelectTrigger data-testid="select-type">
@@ -340,9 +413,17 @@ export default function CuratorNewGarmentPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="placeholder">
-                              No types available
-                            </SelectItem>
+                            {!selectedCategoryId ? (
+                              <SelectItem value="disabled" disabled>First select category</SelectItem>
+                            ) : garmentTypes.length === 0 ? (
+                              <SelectItem value="empty" disabled>No types available</SelectItem>
+                            ) : (
+                              garmentTypes.map((type) => (
+                                <SelectItem key={type.id} value={type.id}>
+                                  {type.name}
+                                </SelectItem>
+                              ))
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -362,7 +443,7 @@ export default function CuratorNewGarmentPage() {
                         <FormLabel>Collection</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value}
                         >
                           <FormControl>
                             <SelectTrigger data-testid="select-collection">
@@ -370,9 +451,17 @@ export default function CuratorNewGarmentPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="placeholder">
-                              No collections available
-                            </SelectItem>
+                            {collectionsLoading ? (
+                              <SelectItem value="loading" disabled>Loading...</SelectItem>
+                            ) : collections.length === 0 ? (
+                              <SelectItem value="empty" disabled>No collections available</SelectItem>
+                            ) : (
+                              collections.map((col) => (
+                                <SelectItem key={col.id} value={col.id}>
+                                  {col.name}
+                                </SelectItem>
+                              ))
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -388,7 +477,8 @@ export default function CuratorNewGarmentPage() {
                         <FormLabel>Lot</FormLabel>
                         <Select
                           onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          value={field.value}
+                          disabled={!selectedCollectionId}
                         >
                           <FormControl>
                             <SelectTrigger data-testid="select-lot">
@@ -396,9 +486,17 @@ export default function CuratorNewGarmentPage() {
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="placeholder">
-                              No lots available
-                            </SelectItem>
+                            {!selectedCollectionId ? (
+                              <SelectItem value="disabled" disabled>First select collection</SelectItem>
+                            ) : lots.length === 0 ? (
+                              <SelectItem value="empty" disabled>No lots available</SelectItem>
+                            ) : (
+                              lots.map((lot) => (
+                                <SelectItem key={lot.id} value={lot.id}>
+                                  {lot.name}
+                                </SelectItem>
+                              ))
+                            )}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -413,16 +511,28 @@ export default function CuratorNewGarmentPage() {
                       <FormItem>
                         <FormLabel>Rack (Optional)</FormLabel>
                         <Select
-                          onValueChange={field.onChange}
-                          defaultValue={field.value}
+                          onValueChange={(value) => {
+                            // Handle "none" as undefined
+                            field.onChange(value === "none" ? undefined : value);
+                          }}
+                          value={field.value || "none"}
                         >
                           <FormControl>
                             <SelectTrigger data-testid="select-rack">
-                              <SelectValue placeholder="Select rack" />
+                              <SelectValue placeholder="No rack assigned" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
                             <SelectItem value="none">No rack</SelectItem>
+                            {racksLoading ? (
+                              <SelectItem value="loading" disabled>Loading...</SelectItem>
+                            ) : (
+                              racks.map((rack) => (
+                                <SelectItem key={rack.id} value={rack.id}>
+                                  {rack.name} {rack.zone ? `(${rack.zone})` : ""}
+                                </SelectItem>
+                              ))
+                            )}
                           </SelectContent>
                         </Select>
                         <FormDescription>
@@ -439,7 +549,7 @@ export default function CuratorNewGarmentPage() {
                 <div className="space-y-4">
                   <FormField
                     control={form.control}
-                    name="photo"
+                    name="photoUrl"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Product Photo</FormLabel>
@@ -459,7 +569,7 @@ export default function CuratorNewGarmentPage() {
                                   className="absolute top-2 right-2"
                                   onClick={() => {
                                     setPhotoPreview(null);
-                                    form.setValue("photo", undefined);
+                                    form.setValue("photoUrl", undefined);
                                   }}
                                 >
                                   Remove
@@ -523,10 +633,10 @@ export default function CuratorNewGarmentPage() {
             ) : (
               <Button
                 type="submit"
-                disabled={isSubmitting}
+                disabled={createGarmentMutation.isPending}
                 data-testid="button-submit"
               >
-                {isSubmitting ? (
+                {createGarmentMutation.isPending ? (
                   <>
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     Creating...

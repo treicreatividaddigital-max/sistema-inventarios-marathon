@@ -263,6 +263,7 @@ export class DatabaseStorage implements IStorage {
 
   // Garments
   async searchGarments(filters: {
+    code?: string;
     categoryId?: string;
     garmentTypeId?: string;
     collectionId?: string;
@@ -278,6 +279,9 @@ export class DatabaseStorage implements IStorage {
 
     const conditions = [];
 
+    if (filters.code) {
+      conditions.push(eq(garments.code, filters.code));
+    }
     if (filters.categoryId) {
       conditions.push(eq(garments.categoryId, filters.categoryId));
     }

@@ -41,7 +41,7 @@ const formSchema = insertGarmentSchema.extend({
   size: z.string().min(1, "Size is required"),
   color: z.string().min(1, "Color is required"),
   gender: z.enum(["MALE", "FEMALE", "UNISEX"]),
-  status: z.enum(["IN_STOCK", "IN_USE", "IN_WASH", "LOST", "DAMAGED", "RETIRED"]),
+  status: z.enum(["IN_STOCK", "IN_TRANSIT", "SOLD", "RESERVED", "DAMAGED"]),
   categoryId: z.string().uuid("Must select a category"),
   garmentTypeId: z.string().uuid("Must select a type"),
   collectionId: z.string().uuid("Must select a collection"),
@@ -90,7 +90,7 @@ export default function CuratorNewGarmentPage() {
       garmentTypeId: "",
       collectionId: "",
       lotId: "",
-      rackId: "none",
+      rackId: undefined,
       photoUrl: undefined,
     },
   });
@@ -346,11 +346,10 @@ export default function CuratorNewGarmentPage() {
                           </FormControl>
                           <SelectContent>
                             <SelectItem value="IN_STOCK">In Stock</SelectItem>
-                            <SelectItem value="IN_USE">In Use</SelectItem>
-                            <SelectItem value="IN_WASH">In Wash</SelectItem>
-                            <SelectItem value="LOST">Lost</SelectItem>
+                            <SelectItem value="IN_TRANSIT">In Transit</SelectItem>
+                            <SelectItem value="SOLD">Sold</SelectItem>
+                            <SelectItem value="RESERVED">Reserved</SelectItem>
                             <SelectItem value="DAMAGED">Damaged</SelectItem>
-                            <SelectItem value="RETIRED">Retired</SelectItem>
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -512,10 +511,9 @@ export default function CuratorNewGarmentPage() {
                         <FormLabel>Rack (Optional)</FormLabel>
                         <Select
                           onValueChange={(value) => {
-                            // Handle "none" as undefined
                             field.onChange(value === "none" ? undefined : value);
                           }}
-                          value={field.value || "none"}
+                          value={field.value ?? "none"}
                         >
                           <FormControl>
                             <SelectTrigger data-testid="select-rack">

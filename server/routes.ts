@@ -690,6 +690,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
   // GARMENTS ROUTES
   // =====================
 
+  // GET /api/garments - List/search garments with optional filters
+  app.get("/api/garments", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const filters = {
+        code: req.query.code as string,
+        categoryId: req.query.categoryId as string,
+        garmentTypeId: req.query.garmentTypeId as string,
+        collectionId: req.query.collectionId as string,
+        lotId: req.query.lotId as string,
+        rackId: req.query.rackId as string,
+        size: req.query.size as string,
+        color: req.query.color as string,
+        gender: req.query.gender as "MALE" | "FEMALE" | "UNISEX",
+        status: req.query.status as string,
+      };
+
+      // Remove undefined values
+      Object.keys(filters).forEach((key) => {
+        if (filters[key as keyof typeof filters] === undefined) {
+          delete filters[key as keyof typeof filters];
+        }
+      });
+
+      const garments = await storage.searchGarments(filters);
+      res.json(garments);
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // GET /api/garments/search - Advanced search with multiple filters
   app.get("/api/garments/search", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -746,10 +776,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post(
     "/api/garments",
     authMiddleware,
-    upload.single("photo"),
+    (req: AuthRequest, res: Response, next: NextFunction) => {
+      // Conditional multer middleware - only apply for multipart/form-data
+      if (req.is('multipart/form-data')) {
+        return upload.single("photo")(req, res, next);
+      }
+      // For JSON requests, proceed directly
+      next();
+    },
     async (req: AuthRequest, res: Response, next: NextFunction) => {
       try {
-        const { code, size, color, gender, status, categoryId, garmentTypeId, collectionId, lotId, rackId } = req.body;
+        const { code, size, color, gender, status, categoryId, garmentTypeId, collectionId, lotId, rackId, photoUrl: bodyPhotoUrl } = req.body;
 
         // Generate QR code for garment
         const baseUrl = process.env.REPLIT_DEV_DOMAIN
@@ -758,7 +795,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const garmentUrl = `${baseUrl}/garment/${code}`;
         const qrUrl = await generateQRCode(garmentUrl);
 
-        const photoUrl = req.file ? `/uploads/${req.file.filename}` : null;
+        // Determine photo URL: from uploaded file or from JSON body
+        const photoUrl = req.file ? `/uploads/${req.file.filename}` : (bodyPhotoUrl || null);
 
         const garment = await storage.createGarment({
           code,

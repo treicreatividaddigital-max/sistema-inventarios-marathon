@@ -10,10 +10,11 @@ import path from "path";
 import { storage } from "./storage";
 
 // JWT Secret and bcrypt configuration from environment
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
+const JWT_SECRET_ENV = process.env.JWT_SECRET;
+if (!JWT_SECRET_ENV) {
   throw new Error("JWT_SECRET environment variable must be set for token signing");
 }
+const JWT_SECRET: string = JWT_SECRET_ENV;
 const SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS || "10", 10);
 
 // File upload configuration
@@ -812,6 +813,36 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
       res.status(204).send();
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // =====================
+  // STATISTICS ROUTE
+  // =====================
+
+  app.get("/api/stats", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      // Get all garments to calculate stats
+      const allGarments = await storage.searchGarments({});
+      const categories = await storage.getAllCategories();
+      const collections = await storage.getAllCollections();
+      const racks = await storage.getAllRacks();
+
+      // Calculate garments by status
+      const garmentsByStatus: Record<string, number> = {};
+      allGarments.forEach((garment) => {
+        garmentsByStatus[garment.status] = (garmentsByStatus[garment.status] || 0) + 1;
+      });
+
+      res.json({
+        totalGarments: allGarments.length,
+        totalCategories: categories.length,
+        totalCollections: collections.length,
+        totalRacks: racks.length,
+        garmentsByStatus,
+      });
     } catch (error) {
       next(error);
     }

@@ -54,7 +54,7 @@ export default function LoginPage() {
         title: "Login successful",
         description: "Welcome back!",
       });
-      setLocation("/dashboard");
+      // Redirect will be handled by App.tsx based on user role
     } catch (error) {
       toast({
         title: "Login failed",

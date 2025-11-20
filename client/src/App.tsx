@@ -10,6 +10,8 @@ import { ThemeToggle } from "@/components/theme-toggle";
 import { AuthProvider, useAuth } from "@/lib/auth-context";
 import NotFound from "@/pages/not-found";
 import LoginPage from "@/pages/login";
+import AdminPage from "@/pages/admin";
+import CuratorPage from "@/pages/curator";
 import DashboardPage from "@/pages/dashboard";
 import SearchPage from "@/pages/search";
 import GarmentDetailPage from "@/pages/garment-detail";
@@ -27,12 +29,14 @@ import CuratorRacksPage from "@/pages/curator-racks";
 function AuthenticatedRoutes() {
   return (
     <Switch>
+      <Route path="/admin" component={AdminPage} />
+      <Route path="/curator" component={CuratorPage} />
       <Route path="/dashboard" component={DashboardPage} />
       <Route path="/search" component={SearchPage} />
       <Route path="/garment/:id" component={GarmentDetailPage} />
       <Route path="/rack/:id" component={RackDetailPage} />
       <Route path="/curator/scan" component={CuratorScanPage} />
-      <Route path="/curator/new" component={CuratorNewGarmentPage} />
+      <Route path="/curator/garments/new" component={CuratorNewGarmentPage} />
       <Route path="/curator/print-qrs" component={CuratorPrintQRsPage} />
       <Route path="/curator/categories" component={CuratorCategoriesPage} />
       <Route path="/curator/types" component={CuratorTypesPage} />
@@ -99,8 +103,13 @@ function AppRouter() {
 
   // Public routes
   if (location === "/" || location === "/login") {
-    // If user is already logged in, redirect to dashboard
+    // If user is already logged in, redirect based on role
     if (user && !isLoading) {
+      if (user.role === "ADMIN") {
+        return <Redirect to="/admin" />;
+      } else if (user.role === "CURATOR") {
+        return <Redirect to="/curator" />;
+      }
       return <Redirect to="/dashboard" />;
     }
     return <LoginPage />;

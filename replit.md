@@ -8,12 +8,17 @@ The Smart Garment Inventory System is a comprehensive solution for managing garm
 
 ## Recent Changes
 
-### 2024-11-21: Global Search Implementation
+### 2024-11-21: Global Search & Unified Hook Implementation
 - **Added global search parameter**: Extended `searchGarments` with `q?: string` parameter
 - **Search logic**: Searches across `code` OR `color` fields using case-insensitive LIKE
 - **Backend**: Updated `server/storage.ts` interface and implementation with `or()` and `like()` operators
 - **API endpoints**: Added `q` parameter to both `/api/garments` and `/api/garments/search`
-- **Frontend**: Updated `search.tsx` to use `q` parameter and `/api/garments/search` endpoint
+- **Created useGarmentSearch hook**: Unified search logic in `client/src/hooks/use-garment-search.ts`
+  - Accepts `GarmentSearchFilters` with `q` + all filter parameters
+  - Constructs URLSearchParams automatically
+  - Always calls `/api/garments/search` endpoint
+  - Returns React Query result with proper typing
+- **Refactored search.tsx**: Migrated from manual query construction to `useGarmentSearch` hook
 - **E2E verified**: All search scenarios tested (partial code, color, empty results, combined filters)
 
 ### 2024-11-21: Photo Upload System & Stream Management

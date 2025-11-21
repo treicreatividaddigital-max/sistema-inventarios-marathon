@@ -23,38 +23,9 @@ import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { Link } from "wouter";
+import { useGarmentSearch, type GarmentSearchFilters } from "@/hooks/use-garment-search";
 
-type FilterState = {
-  categoryId?: string;
-  garmentTypeId?: string;
-  collectionId?: string;
-  lotId?: string;
-  rackId?: string;
-  size?: string;
-  color?: string;
-  gender?: string;
-  status?: string;
-};
-
-type Garment = {
-  id: string;
-  code: string;
-  size: string;
-  color: string;
-  gender: string;
-  status: string;
-  photoUrl: string | null;
-  categoryId: string;
-  garmentTypeId: string;
-  collectionId: string;
-  lotId: string;
-  rackId: string | null;
-  category?: { id: string; name: string };
-  garmentType?: { id: string; name: string };
-  collection?: { id: string; name: string };
-  lot?: { id: string; name: string; code: string };
-  rack?: { id: string; name: string; code: string };
-};
+type FilterState = GarmentSearchFilters;
 
 type Category = { id: string; name: string };
 type GarmentType = { id: string; name: string; categoryId: string };
@@ -67,25 +38,9 @@ export default function SearchPage() {
   const [filters, setFilters] = useState<FilterState>({});
   const [isFilterOpen, setIsFilterOpen] = useState(false);
 
-  // Build query params
-  const queryParams = new URLSearchParams();
-  
-  // Búsqueda libre (code, color) usando "q"
-  if (searchQuery) queryParams.append("q", searchQuery);
-  
-  if (filters.categoryId) queryParams.append("categoryId", filters.categoryId);
-  if (filters.garmentTypeId) queryParams.append("garmentTypeId", filters.garmentTypeId);
-  if (filters.collectionId) queryParams.append("collectionId", filters.collectionId);
-  if (filters.lotId) queryParams.append("lotId", filters.lotId);
-  if (filters.rackId) queryParams.append("rackId", filters.rackId);
-  if (filters.size) queryParams.append("size", filters.size);
-  if (filters.color) queryParams.append("color", filters.color);
-  if (filters.gender) queryParams.append("gender", filters.gender);
-  if (filters.status) queryParams.append("status", filters.status);
-
-  const garmentQueryUrl = `/api/garments/search${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
-  const { data: garments = [], isLoading: garmentsLoading } = useQuery<Garment[]>({
-    queryKey: [garmentQueryUrl],
+  const { data: garments = [], isLoading: garmentsLoading } = useGarmentSearch({
+    q: searchQuery,
+    ...filters,
   });
 
   const { data: categories = [] } = useQuery<Category[]>({

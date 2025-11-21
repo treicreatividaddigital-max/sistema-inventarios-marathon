@@ -117,30 +117,27 @@ export default function CuratorNewGarmentPage() {
   // Create garment mutation
   const createGarmentMutation = useMutation({
     mutationFn: async (data: FormValues) => {
-      // Si hay un archivo, enviar FormData; si no, enviar JSON
-      if (photoFile) {
-        const formData = new FormData();
-        formData.append("code", data.code);
-        formData.append("size", data.size);
-        formData.append("color", data.color);
-        formData.append("gender", data.gender);
-        formData.append("status", data.status ?? "IN_STOCK");
-        formData.append("categoryId", data.categoryId);
-        formData.append("garmentTypeId", data.garmentTypeId);
-        formData.append("collectionId", data.collectionId);
-        if (data.lotId) formData.append("lotId", data.lotId);
-        if (data.rackId) formData.append("rackId", data.rackId);
-        formData.append("photo", photoFile);
+      const formData = new FormData();
 
-        return await apiRequest("POST", "/api/garments", formData);
-      } else {
-        // Sin archivo, enviar JSON normal
-        const cleanData = {
-          ...data,
-          photoUrl: data.photoUrl || undefined,
-        };
-        return await apiRequest("POST", "/api/garments", cleanData);
+      formData.append("code", data.code);
+      formData.append("size", data.size);
+      formData.append("color", data.color);
+      formData.append("gender", data.gender);
+      formData.append("status", data.status ?? "IN_STOCK");
+      formData.append("categoryId", data.categoryId);
+      formData.append("garmentTypeId", data.garmentTypeId);
+      formData.append("collectionId", data.collectionId);
+
+      if (data.lotId) formData.append("lotId", data.lotId);
+      if (data.rackId) formData.append("rackId", data.rackId);
+
+      // Si hay archivo, lo usamos. Si en el futuro quieres soportar URL manual, podrías manejarlo aquí.
+      if (photoFile) {
+        formData.append("photo", photoFile); // clave EXACTA "photo" para Multer
       }
+
+      // Usamos apiRequest, que ahora ya soporta FormData
+      return await apiRequest("POST", "/api/garments", formData);
     },
     onSuccess: () => {
       toast({

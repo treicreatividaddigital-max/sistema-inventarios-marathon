@@ -197,9 +197,11 @@ export default function CuratorNewGarmentPage() {
   };
 
   const handleCameraCapture = async () => {
+    let stream: MediaStream | null = null;
+    
     try {
       setIsCapturingPhoto(true);
-      const stream = await navigator.mediaDevices.getUserMedia({
+      stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: "environment" },
       });
 
@@ -230,9 +232,6 @@ export default function CuratorNewGarmentPage() {
       setPhotoFile(file);
       form.setValue("photoUrl", "");
 
-      // Detenemos la cámara
-      stream.getTracks().forEach((track) => track.stop());
-
       toast({
         title: "Photo captured",
         description: "Photo has been captured successfully",
@@ -244,6 +243,10 @@ export default function CuratorNewGarmentPage() {
         variant: "destructive",
       });
     } finally {
+      // Siempre detenemos el stream, incluso si ocurrió un error
+      if (stream) {
+        stream.getTracks().forEach((track) => track.stop());
+      }
       setIsCapturingPhoto(false);
     }
   };

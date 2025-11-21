@@ -8,6 +8,14 @@ The Smart Garment Inventory System is a comprehensive solution for managing garm
 
 ## Recent Changes
 
+### 2024-11-21: Photo Upload System & Stream Management
+- **Complete photo upload implementation**: Frontend sends real File objects via FormData, backend uses Multer to save to `/uploads/`
+- **Enhanced apiRequest utility**: Automatically detects and handles FormData vs JSON requests without manual header configuration
+- **Fixed form navigation bug**: "Next" button in multi-step garment form no longer submits prematurely (added preventDefault/stopPropagation)
+- **Improved camera capture**: Stream cleanup moved to finally block to ensure camera stops even on errors
+- **Rate limiting adjustment**: Changed from 5 to 100 requests per 15 minutes for better UX
+- **E2E verified**: Complete wizard flow tested and working, photos upload successfully
+
 ### 2024-11-21: Cache Optimization & User Management
 - **Fixed cache invalidation issues**: Expanded query invalidation with `exact: false` to include dynamic queries (e.g., `/api/lots/by-collection/:id`)
 - **Reduced staleTime**: Changed from Infinity to 30 seconds to prevent stale data
@@ -220,6 +228,21 @@ tsx server/seed.ts
 - **Production Mode**: All bundles precached from built assets
 
 **Note**: Complete offline support (cold start without prior network) requires production build with all module dependencies bundled.
+
+## Technical Notes
+
+### Photo Upload System
+- **New Garment**: Uses FormData with real File objects (not base64)
+- **Camera Capture**: Converts canvas to File via fetch/blob, stream cleanup in finally block ensures camera always stops
+- **apiRequest**: Automatically detects FormData vs JSON, sets appropriate headers
+- **Backend**: Multer saves to `/uploads/`, photoUrl stored as relative path in database
+
+### Future: Edit Garment Implementation
+When implementing garment editing, ensure:
+1. **Use FormData when new photo uploaded**: If user selects/captures new photo, send FormData like create
+2. **Preserve existing photoUrl**: If no new photo, send JSON with existing photoUrl value
+3. **Backend logic**: Check if new photo file present, save it and update photoUrl; otherwise keep existing value
+4. **File cleanup**: Consider deleting old photo file when replacing with new one
 
 ## Next Steps
 1. ~~Add PWA configuration for offline support~~ ✅ COMPLETED

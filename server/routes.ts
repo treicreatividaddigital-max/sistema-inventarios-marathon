@@ -44,7 +44,7 @@ const upload = multer({
 // Rate limiting for auth endpoints
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 requests per window
+  max: 100, // 100 requests per window
   message: "Too many login attempts, please try again later.",
 });
 

@@ -1,5 +1,5 @@
-const CACHE_NAME = 'smart-inventory-v2';
-const RUNTIME_CACHE = 'smart-inventory-runtime-v2';
+const CACHE_NAME = 'smart-inventory-v3';
+const RUNTIME_CACHE = 'smart-inventory-runtime-v3';
 
 // Core assets to cache on install
 // Note: Vite bundles (/src/main.tsx in dev, hashed JS/CSS in prod) are cached at runtime

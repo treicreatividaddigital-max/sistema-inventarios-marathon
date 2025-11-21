@@ -80,14 +80,9 @@ export default function SearchPage() {
   if (filters.gender) queryParams.append("gender", filters.gender);
   if (filters.status) queryParams.append("status", filters.status);
 
+  const garmentQueryUrl = `/api/garments${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
   const { data: garments = [], isLoading: garmentsLoading } = useQuery<Garment[]>({
-    queryKey: ["/api/garments", queryParams.toString()],
-    queryFn: async () => {
-      const url = `/api/garments${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
-      const res = await fetch(url, { credentials: "include" });
-      if (!res.ok) throw new Error("Failed to fetch garments");
-      return res.json();
-    },
+    queryKey: [garmentQueryUrl],
   });
 
   const { data: categories = [] } = useQuery<Category[]>({

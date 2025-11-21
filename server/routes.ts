@@ -352,6 +352,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/categories/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Check if category has garments
+      const garmentsWithCategory = await storage.searchGarments({ categoryId: req.params.id });
+      if (garmentsWithCategory.length > 0) {
+        return res.status(400).json({
+          statusCode: 400,
+          message: `Cannot delete category: ${garmentsWithCategory.length} garment(s) are using this category`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       const deleted = await storage.deleteCategory(req.params.id);
       if (!deleted) {
         return res.status(404).json({
@@ -360,7 +370,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           timestamp: new Date().toISOString(),
         });
       }
-      res.status(204).send();
+      res.json({ success: true });
     } catch (error) {
       next(error);
     }
@@ -431,6 +441,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/garment-types/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Check if type has garments
+      const garmentsWithType = await storage.searchGarments({ garmentTypeId: req.params.id });
+      if (garmentsWithType.length > 0) {
+        return res.status(400).json({
+          statusCode: 400,
+          message: `Cannot delete garment type: ${garmentsWithType.length} garment(s) are using this type`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       const deleted = await storage.deleteGarmentType(req.params.id);
       if (!deleted) {
         return res.status(404).json({
@@ -439,7 +459,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           timestamp: new Date().toISOString(),
         });
       }
-      res.status(204).send();
+      res.json({ success: true });
     } catch (error) {
       next(error);
     }
@@ -501,6 +521,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/collections/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Check if collection has garments
+      const garmentsWithCollection = await storage.searchGarments({ collectionId: req.params.id });
+      if (garmentsWithCollection.length > 0) {
+        return res.status(400).json({
+          statusCode: 400,
+          message: `Cannot delete collection: ${garmentsWithCollection.length} garment(s) are using this collection`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       const deleted = await storage.deleteCollection(req.params.id);
       if (!deleted) {
         return res.status(404).json({
@@ -509,7 +539,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           timestamp: new Date().toISOString(),
         });
       }
-      res.status(204).send();
+      res.json({ success: true });
     } catch (error) {
       next(error);
     }
@@ -580,6 +610,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/lots/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Check if lot has garments
+      const garmentsWithLot = await storage.searchGarments({ lotId: req.params.id });
+      if (garmentsWithLot.length > 0) {
+        return res.status(400).json({
+          statusCode: 400,
+          message: `Cannot delete lot: ${garmentsWithLot.length} garment(s) are using this lot`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       const deleted = await storage.deleteLot(req.params.id);
       if (!deleted) {
         return res.status(404).json({
@@ -588,7 +628,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           timestamp: new Date().toISOString(),
         });
       }
-      res.status(204).send();
+      res.json({ success: true });
     } catch (error) {
       next(error);
     }
@@ -695,6 +735,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.delete("/api/racks/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Check if rack has garments
+      const garmentsWithRack = await storage.searchGarments({ rackId: req.params.id });
+      if (garmentsWithRack.length > 0) {
+        return res.status(400).json({
+          statusCode: 400,
+          message: `Cannot delete rack: ${garmentsWithRack.length} garment(s) are currently in this rack`,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       const deleted = await storage.deleteRack(req.params.id);
       if (!deleted) {
         return res.status(404).json({
@@ -703,7 +753,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           timestamp: new Date().toISOString(),
         });
       }
-      res.status(204).send();
+      res.json({ success: true });
     } catch (error) {
       next(error);
     }
@@ -926,7 +976,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           timestamp: new Date().toISOString(),
         });
       }
-      res.status(204).send();
+      res.json({ success: true });
     } catch (error) {
       next(error);
     }

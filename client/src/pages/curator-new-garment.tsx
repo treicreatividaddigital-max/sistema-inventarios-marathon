@@ -198,55 +198,52 @@ export default function CuratorNewGarmentPage() {
   const handleCameraCapture = async () => {
     try {
       setIsCapturingPhoto(true);
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: "environment" } // Use rear camera on mobile
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: "environment" },
       });
-      
-      // Create video element to capture frame
-      const video = document.createElement('video');
+
+      const video = document.createElement("video");
       video.srcObject = stream;
-      video.play();
-      
-      // Wait for video to be ready
+      await video.play();
+
       await new Promise((resolve) => {
         video.onloadedmetadata = resolve;
       });
-      
-      // Create canvas to capture frame
-      const canvas = document.createElement('canvas');
+
+      const canvas = document.createElement("canvas");
       canvas.width = video.videoWidth;
       canvas.height = video.videoHeight;
-      const ctx = canvas.getContext('2d');
+      const ctx = canvas.getContext("2d");
       ctx?.drawImage(video, 0, 0);
-      
-      // Convert canvas to blob and then to File
-      canvas.toBlob((blob) => {
-        if (blob) {
-          const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
-          setPhotoFile(file);
-        }
-      }, 'image/jpeg', 0.8);
-      
-      // Convert to data URL for preview
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+
+      // DataURL solo para preview
+      const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
       setPhotoPreview(dataUrl);
+
+      // Convertimos el dataUrl en Blob y luego en File
+      const response = await fetch(dataUrl);
+      const blob = await response.blob();
+      const file = new File([blob], `capture-${Date.now()}.jpg`, {
+        type: blob.type || "image/jpeg",
+      });
+      setPhotoFile(file);
       form.setValue("photoUrl", "");
-      
-      // Stop camera
-      stream.getTracks().forEach(track => track.stop());
-      setIsCapturingPhoto(false);
-      
+
+      // Detenemos la cámara
+      stream.getTracks().forEach((track) => track.stop());
+
       toast({
         title: "Photo captured",
         description: "Photo has been captured successfully",
       });
     } catch (error: any) {
-      setIsCapturingPhoto(false);
       toast({
         title: "Camera error",
-        description: error.message || "Could not access camera",
+        description: error?.message || "Could not access camera",
         variant: "destructive",
       });
+    } finally {
+      setIsCapturingPhoto(false);
     }
   };
 
@@ -656,6 +653,7 @@ export default function CuratorNewGarmentPage() {
                                   className="absolute top-2 right-2"
                                   onClick={() => {
                                     setPhotoPreview(null);
+                                    setPhotoFile(null);
                                     form.setValue("photoUrl", undefined);
                                   }}
                                   data-testid="button-remove-photo"

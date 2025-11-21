@@ -17,9 +17,11 @@ The Smart Garment Inventory System is a comprehensive solution for managing garm
   - Accepts `GarmentSearchFilters` with `q` + all filter parameters
   - Constructs URLSearchParams automatically
   - Always calls `/api/garments/search` endpoint
+  - Uses full URL string as queryKey for proper React Query caching
   - Returns React Query result with proper typing
 - **Refactored search.tsx**: Migrated from manual query construction to `useGarmentSearch` hook
-- **E2E verified**: All search scenarios tested (partial code, color, empty results, combined filters)
+- **Bug fix**: Corrected queryKey from `["/api/garments/search", filters]` to `[queryUrl]` to ensure API calls are made
+- **E2E verified**: All search scenarios tested for both ADMIN and CURATOR roles (initial load, text search, filters, combined)
 
 ### 2024-11-21: Photo Upload System & Stream Management
 - **Complete photo upload implementation**: Frontend sends real File objects via FormData, backend uses Multer to save to `/uploads/`

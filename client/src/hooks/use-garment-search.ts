@@ -47,10 +47,10 @@ export function useGarmentSearch(filters: GarmentSearchFilters) {
   if (filters.gender) queryParams.append("gender", filters.gender);
   if (filters.status) queryParams.append("status", filters.status);
 
-  const queryUrl = `/api/garments/search${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
+  const queryString = queryParams.toString();
+  const queryUrl = `/api/garments/search${queryString ? `?${queryString}` : ""}`;
 
   return useQuery<Garment[]>({
     queryKey: [queryUrl],
-    initialData: [],
   });
 }

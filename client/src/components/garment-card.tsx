@@ -65,13 +65,13 @@ export function GarmentCard({ garment }: GarmentCardProps) {
     <Card className="hover-elevate active-elevate-2 h-full relative" data-testid={`card-garment-${garment.id}`}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2 mb-2">
-          <Link href={`/garment/${garment.code}`}>
-            <CardTitle className="text-base font-mono hover:underline cursor-pointer">
+          <Link href={`/garment/${garment.code}`} data-testid={`link-garment-${garment.id}`}>
+            <CardTitle className="text-base font-mono hover:underline cursor-pointer" data-testid={`text-code-${garment.id}`}>
               {garment.code}
             </CardTitle>
           </Link>
           <div className="flex items-center gap-1.5 shrink-0">
-            <Badge className={`${getStatusColor(garment.status)} text-white`}>
+            <Badge className={`${getStatusColor(garment.status)} text-white`} data-testid={`badge-status-${garment.id}`}>
               {getStatusLabel(garment.status)}
             </Badge>
             {canEdit && (
@@ -90,13 +90,13 @@ export function GarmentCard({ garment }: GarmentCardProps) {
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
-          <Badge variant="outline" className="text-xs">
+          <Badge variant="outline" className="text-xs" data-testid={`badge-size-${garment.id}`}>
             {garment.size}
           </Badge>
-          <Badge variant="outline" className="text-xs">
+          <Badge variant="outline" className="text-xs" data-testid={`badge-color-${garment.id}`}>
             {garment.color}
           </Badge>
-          <Badge variant="outline" className="text-xs">
+          <Badge variant="outline" className="text-xs" data-testid={`badge-gender-${garment.id}`}>
             {garment.gender}
           </Badge>
         </div>
@@ -109,9 +109,10 @@ export function GarmentCard({ garment }: GarmentCardProps) {
               src={garment.photoUrl}
               alt={garment.code}
               className="w-full h-40 object-cover rounded-md mb-3 cursor-pointer"
+              data-testid={`img-photo-${garment.id}`}
             />
           ) : (
-            <div className="w-full h-40 bg-muted rounded-md flex flex-col items-center justify-center mb-3 cursor-pointer">
+            <div className="w-full h-40 bg-muted rounded-md flex flex-col items-center justify-center mb-3 cursor-pointer" data-testid={`placeholder-photo-${garment.id}`}>
               <Package2 className="h-12 w-12 text-muted-foreground mb-2" />
               <p className="text-xs text-muted-foreground">Sin foto</p>
             </div>
@@ -120,7 +121,7 @@ export function GarmentCard({ garment }: GarmentCardProps) {
 
         {/* Missing data indicator */}
         {hasMissingData && (
-          <div className="mb-3 flex items-center gap-2 bg-orange-500/10 border border-orange-500/20 rounded-md px-2 py-1.5">
+          <div className="mb-3 flex items-center gap-2 bg-orange-500/10 border border-orange-500/20 rounded-md px-2 py-1.5" data-testid={`alert-missing-${garment.id}`}>
             <AlertTriangle className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400 shrink-0" />
             <p className="text-xs text-orange-600 dark:text-orange-400">
               Faltan: {missingData.join(", ")}
@@ -131,21 +132,21 @@ export function GarmentCard({ garment }: GarmentCardProps) {
         {/* Garment details */}
         <div className="space-y-1 text-sm">
           {garment.category && (
-            <p className="text-muted-foreground">
+            <p className="text-muted-foreground" data-testid={`text-category-${garment.id}`}>
               <span className="font-medium">Category:</span> {garment.category.name}
             </p>
           )}
           {garment.garmentType && (
-            <p className="text-muted-foreground">
+            <p className="text-muted-foreground" data-testid={`text-type-${garment.id}`}>
               <span className="font-medium">Type:</span> {garment.garmentType.name}
             </p>
           )}
           {garment.rack ? (
-            <p className="text-muted-foreground">
+            <p className="text-muted-foreground" data-testid={`text-rack-${garment.id}`}>
               <span className="font-medium">Rack:</span> {garment.rack.name}
             </p>
           ) : (
-            <p className="text-orange-600 dark:text-orange-400 text-xs">
+            <p className="text-orange-600 dark:text-orange-400 text-xs" data-testid={`text-rack-unassigned-${garment.id}`}>
               <span className="font-medium">Rack:</span> Sin asignar
             </p>
           )}

@@ -18,6 +18,7 @@ import GarmentDetailPage from "@/pages/garment-detail";
 import RackDetailPage from "@/pages/rack-detail";
 import CuratorScanPage from "@/pages/curator-scan";
 import CuratorNewGarmentPage from "@/pages/curator-new-garment";
+import CuratorEditGarmentPage from "@/pages/curator-edit-garment";
 import CuratorPrintQRsPage from "@/pages/curator-print-qrs";
 import CuratorCategoriesPage from "@/pages/curator-categories";
 import CuratorTypesPage from "@/pages/curator-types";
@@ -38,6 +39,7 @@ function AuthenticatedRoutes() {
       <Route path="/rack/:code" component={RackDetailPage} />
       <Route path="/curator/scan" component={CuratorScanPage} />
       <Route path="/curator/garments/new" component={CuratorNewGarmentPage} />
+      <Route path="/curator/garment/:id/edit" component={CuratorEditGarmentPage} />
       <Route path="/curator/print-qrs" component={CuratorPrintQRsPage} />
       <Route path="/curator/categories" component={CuratorCategoriesPage} />
       <Route path="/curator/types" component={CuratorTypesPage} />

@@ -159,13 +159,17 @@ export default function CuratorNewGarmentPage() {
     },
   });
 
-  const nextStep = () => {
+  const nextStep = (e?: React.MouseEvent<HTMLButtonElement>) => {
+    e?.preventDefault();
+    e?.stopPropagation();
     if (currentStep < STEPS.length) {
       setCurrentStep(currentStep + 1);
     }
   };
 
-  const prevStep = () => {
+  const prevStep = (e?: React.MouseEvent<HTMLButtonElement>) => {
+    e?.preventDefault();
+    e?.stopPropagation();
     if (currentStep > 1) {
       setCurrentStep(currentStep - 1);
     }
@@ -247,7 +251,7 @@ export default function CuratorNewGarmentPage() {
   return (
     <div className="space-y-6 max-w-3xl mx-auto p-6">
       <div className="flex items-center gap-4">
-        <Button variant="ghost" size="icon" onClick={() => navigate("/curator")} data-testid="button-back">
+        <Button type="button" variant="ghost" size="icon" onClick={() => navigate("/curator")} data-testid="button-back">
           <ArrowLeft className="h-5 w-5" />
         </Button>
         <div>
@@ -719,7 +723,7 @@ export default function CuratorNewGarmentPage() {
             <Button
               type="button"
               variant="outline"
-              onClick={prevStep}
+              onClick={(e) => prevStep(e)}
               disabled={currentStep === 1}
               data-testid="button-previous"
             >
@@ -730,7 +734,7 @@ export default function CuratorNewGarmentPage() {
             {currentStep < STEPS.length ? (
               <Button
                 type="button"
-                onClick={nextStep}
+                onClick={(e) => nextStep(e)}
                 data-testid="button-next"
               >
                 Next

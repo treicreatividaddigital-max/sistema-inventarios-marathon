@@ -1024,21 +1024,45 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.patch("/api/garments/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const garment = await storage.updateGarment(req.params.id, req.body);
-      if (!garment) {
-        return res.status(404).json({
-          statusCode: 404,
-          message: "Garment not found",
-          timestamp: new Date().toISOString(),
-        });
+  app.patch(
+    "/api/garments/:id",
+    authMiddleware,
+    (req: AuthRequest, res: Response, next: NextFunction) => {
+      // Conditional multer middleware - only apply for multipart/form-data
+      if (req.is('multipart/form-data')) {
+        return upload.single("photo")(req, res, next);
       }
-      res.json(garment);
-    } catch (error) {
-      next(error);
+      // For JSON requests, proceed directly
+      next();
+    },
+    async (req: AuthRequest, res: Response, next: NextFunction) => {
+      try {
+        const updateData = { ...req.body };
+
+        // If a new photo was uploaded, update the photoUrl
+        if (req.file) {
+          updateData.photoUrl = `/uploads/${req.file.filename}`;
+        }
+
+        // If photoUrl is explicitly set to empty string or null, clear it
+        if (updateData.photoUrl === "" || updateData.photoUrl === null) {
+          updateData.photoUrl = null;
+        }
+
+        const garment = await storage.updateGarment(req.params.id, updateData);
+        if (!garment) {
+          return res.status(404).json({
+            statusCode: 404,
+            message: "Garment not found",
+            timestamp: new Date().toISOString(),
+          });
+        }
+        res.json(garment);
+      } catch (error) {
+        next(error);
+      }
     }
-  });
+  );
 
   app.delete("/api/garments/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {

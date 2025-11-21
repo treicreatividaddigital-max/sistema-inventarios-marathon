@@ -240,9 +240,11 @@ export default function GarmentDetailPage() {
                             <p>{new Date(movement.movedAt).toLocaleTimeString()}</p>
                           </div>
                         </div>
-                        <p className="text-xs text-muted-foreground mt-2">
-                          By {movement.movedBy.name}
-                        </p>
+                        {movement.movedBy && (
+                          <p className="text-xs text-muted-foreground mt-2">
+                            By {movement.movedBy.name}
+                          </p>
+                        )}
                       </div>
                     </div>
                   ))
@@ -274,8 +276,8 @@ export default function GarmentDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>QR Code</CardTitle>
-              <CardDescription>Scan to view details</CardDescription>
+              <CardTitle>Garment QR Code</CardTitle>
+              <CardDescription>Scan to view garment details</CardDescription>
             </CardHeader>
             <CardContent className="flex flex-col items-center">
               {garment.qrUrl ? (
@@ -294,6 +296,31 @@ export default function GarmentDetailPage() {
               </p>
             </CardContent>
           </Card>
+
+          {garment.rack && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Rack QR Code</CardTitle>
+                <CardDescription>Scan to view rack location</CardDescription>
+              </CardHeader>
+              <CardContent className="flex flex-col items-center">
+                {garment.rack.qrUrl ? (
+                  <img
+                    src={garment.rack.qrUrl}
+                    alt={`QR Code for ${garment.rack.code}`}
+                    className="w-64 h-64"
+                  />
+                ) : (
+                  <div className="w-64 h-64 bg-muted rounded-lg flex items-center justify-center">
+                    <QrCodeIcon className="h-16 w-16 text-muted-foreground" />
+                  </div>
+                )}
+                <p className="font-mono text-sm mt-4 text-center" data-testid="text-rack-qr-code">
+                  {garment.rack.code}
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
     </div>

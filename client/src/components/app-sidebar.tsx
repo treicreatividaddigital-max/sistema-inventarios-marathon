@@ -45,18 +45,11 @@ export function AppSidebar() {
   const isAdmin = user?.role === "ADMIN";
   const isCurator = user?.role === "CURATOR";
 
-  // Admin menu items
+  // Admin menu items (read-only access)
   const adminMenuItems = {
     main: [
       { title: "Dashboard", url: "/admin", icon: BarChart3 },
       { title: "Search", url: "/search", icon: Search },
-    ],
-    management: [
-      { title: "Categories", url: "/curator/categories", icon: LayoutGrid },
-      { title: "Types", url: "/curator/types", icon: Tag },
-      { title: "Collections", url: "/curator/collections", icon: Layers },
-      { title: "Lots", url: "/curator/lots", icon: Box },
-      { title: "Racks", url: "/curator/racks", icon: Package },
     ],
   };
 
@@ -95,53 +88,29 @@ export function AppSidebar() {
       </SidebarHeader>
 
       <SidebarContent>
-        {/* Admin Menu */}
+        {/* Admin Menu - Read-only access to Dashboard and Search */}
         {isAdmin && (
-          <>
-            <SidebarGroup>
-              <SidebarGroupLabel>Main</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {adminMenuItems.main.map((item) => (
-                    <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={location === item.url}
-                        data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
-                      >
-                        <Link href={item.url}>
-                          <item.icon className="h-4 w-4" />
-                          <span>{item.title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-
-            <SidebarGroup>
-              <SidebarGroupLabel>Management</SidebarGroupLabel>
-              <SidebarGroupContent>
-                <SidebarMenu>
-                  {adminMenuItems.management.map((item) => (
-                    <SidebarMenuItem key={item.title}>
-                      <SidebarMenuButton
-                        asChild
-                        isActive={location === item.url}
-                        data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
-                      >
-                        <Link href={item.url}>
-                          <item.icon className="h-4 w-4" />
-                          <span>{item.title}</span>
-                        </Link>
-                      </SidebarMenuButton>
-                    </SidebarMenuItem>
-                  ))}
-                </SidebarMenu>
-              </SidebarGroupContent>
-            </SidebarGroup>
-          </>
+          <SidebarGroup>
+            <SidebarGroupLabel>Main</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {adminMenuItems.main.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === item.url}
+                      data-testid={`link-${item.title.toLowerCase().replace(/\s+/g, "-")}`}
+                    >
+                      <Link href={item.url}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
         )}
 
         {/* Curator Menu */}

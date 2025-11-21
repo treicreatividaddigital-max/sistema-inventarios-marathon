@@ -74,6 +74,7 @@ export interface IStorage {
 
   // Garments
   searchGarments(filters: {
+    q?: string;
     categoryId?: string;
     garmentTypeId?: string;
     collectionId?: string;
@@ -263,6 +264,7 @@ export class DatabaseStorage implements IStorage {
 
   // Garments
   async searchGarments(filters: {
+    q?: string;
     code?: string;
     categoryId?: string;
     garmentTypeId?: string;
@@ -278,6 +280,17 @@ export class DatabaseStorage implements IStorage {
     let query = db.select().from(garments);
 
     const conditions = [];
+
+    // Búsqueda genérica por código o color
+    if (filters.q) {
+      const pattern = `%${filters.q}%`;
+      conditions.push(
+        or(
+          like(garments.code, pattern),
+          like(garments.color, pattern)
+        )
+      );
+    }
 
     if (filters.code) {
       conditions.push(eq(garments.code, filters.code));

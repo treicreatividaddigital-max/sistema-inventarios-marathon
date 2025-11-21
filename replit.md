@@ -8,6 +8,13 @@ The Smart Garment Inventory System is a comprehensive solution for managing garm
 
 ## Recent Changes
 
+### 2024-11-21: Global Search Implementation
+- **Added global search parameter**: Extended `searchGarments` with `q?: string` parameter
+- **Search logic**: Searches across `code` OR `color` fields using case-insensitive LIKE
+- **Backend**: Updated `server/storage.ts` interface and implementation with `or()` and `like()` operators
+- **API endpoints**: Added `q` parameter to both `/api/garments` and `/api/garments/search`
+- **E2E verified**: All search scenarios tested (partial code, color, empty results, combined filters)
+
 ### 2024-11-21: Photo Upload System & Stream Management
 - **Complete photo upload implementation**: Frontend sends real File objects via FormData, backend uses Multer to save to `/uploads/`
 - **Enhanced apiRequest utility**: Automatically detects and handles FormData vs JSON requests without manual header configuration

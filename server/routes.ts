@@ -839,6 +839,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/garments", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const filters = {
+        q: req.query.q as string,
         code: req.query.code as string,
         categoryId: req.query.categoryId as string,
         garmentTypeId: req.query.garmentTypeId as string,
@@ -869,6 +870,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get("/api/garments/search", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const filters = {
+        q: req.query.q as string,
         categoryId: req.query.categoryId as string,
         garmentTypeId: req.query.garmentTypeId as string,
         collectionId: req.query.collectionId as string,

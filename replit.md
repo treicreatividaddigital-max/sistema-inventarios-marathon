@@ -13,6 +13,7 @@ The Smart Garment Inventory System is a comprehensive solution for managing garm
 - **Search logic**: Searches across `code` OR `color` fields using case-insensitive LIKE
 - **Backend**: Updated `server/storage.ts` interface and implementation with `or()` and `like()` operators
 - **API endpoints**: Added `q` parameter to both `/api/garments` and `/api/garments/search`
+- **Frontend**: Updated `search.tsx` to use `q` parameter and `/api/garments/search` endpoint
 - **E2E verified**: All search scenarios tested (partial code, color, empty results, combined filters)
 
 ### 2024-11-21: Photo Upload System & Stream Management

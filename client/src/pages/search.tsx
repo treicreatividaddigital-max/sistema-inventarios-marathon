@@ -69,7 +69,10 @@ export default function SearchPage() {
 
   // Build query params
   const queryParams = new URLSearchParams();
-  if (searchQuery) queryParams.append("code", searchQuery);
+  
+  // Búsqueda libre (code, color) usando "q"
+  if (searchQuery) queryParams.append("q", searchQuery);
+  
   if (filters.categoryId) queryParams.append("categoryId", filters.categoryId);
   if (filters.garmentTypeId) queryParams.append("garmentTypeId", filters.garmentTypeId);
   if (filters.collectionId) queryParams.append("collectionId", filters.collectionId);
@@ -80,7 +83,7 @@ export default function SearchPage() {
   if (filters.gender) queryParams.append("gender", filters.gender);
   if (filters.status) queryParams.append("status", filters.status);
 
-  const garmentQueryUrl = `/api/garments${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
+  const garmentQueryUrl = `/api/garments/search${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
   const { data: garments = [], isLoading: garmentsLoading } = useQuery<Garment[]>({
     queryKey: [garmentQueryUrl],
   });

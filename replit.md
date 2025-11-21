@@ -8,6 +8,20 @@ The Smart Garment Inventory System is a comprehensive solution for managing garm
 
 ## Recent Changes
 
+### 2024-11-21: Garment Edit UI with Visual Indicators
+- **GarmentCard component**: Created reusable garment card with visual indicators
+  - Shows placeholder icon when photo is missing
+  - Displays orange alert badge for missing data (photo, rack, lot)
+  - Edit button visible only to CURATOR/ADMIN users
+  - All interactive elements have data-testid attributes for testing
+- **Edit Garment Page**: Full-featured editing at `/curator/garment/:id/edit`
+  - Multi-step form (4 steps) matching create flow
+  - Loads existing garment data via `useQuery` with correct endpoint
+  - Photo management: preserve existing, replace with upload/camera, or delete
+  - Backend PATCH endpoint now supports multipart/form-data with Multer
+- **Unified card usage**: Updated search.tsx and rack-detail.tsx to use GarmentCard component
+- **E2E verified**: Complete edit workflow tested (login, edit, update fields, manage photos, save, verify)
+
 ### 2024-11-21: Global Search & Unified Hook Implementation
 - **Added global search parameter**: Extended `searchGarments` with `q?: string` parameter
 - **Search logic**: Searches across `code` OR `color` fields using case-insensitive LIKE

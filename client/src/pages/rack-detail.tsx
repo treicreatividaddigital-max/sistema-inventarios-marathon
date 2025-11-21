@@ -10,6 +10,7 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { GarmentCard } from "@/components/garment-card";
 import type { Rack, Garment } from "@shared/schema";
 
 type RackWithGarments = Rack & {
@@ -116,7 +117,9 @@ export default function RackDetailPage() {
                 </div>
               ) : (
                 <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
-                  {/* Garment cards will be mapped here */}
+                  {garments.map((garment) => (
+                    <GarmentCard key={garment.id} garment={garment} />
+                  ))}
                 </div>
               )}
             </CardContent>

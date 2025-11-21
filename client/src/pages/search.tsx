@@ -1,14 +1,11 @@
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Search as SearchIcon, SlidersHorizontal, X, Package2 } from "lucide-react";
+import { Search as SearchIcon, SlidersHorizontal, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import {
   Card,
   CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
 } from "@/components/ui/card";
 import {
   Select,
@@ -22,8 +19,8 @@ import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { Link } from "wouter";
 import { useGarmentSearch, type GarmentSearchFilters } from "@/hooks/use-garment-search";
+import { GarmentCard } from "@/components/garment-card";
 
 type FilterState = GarmentSearchFilters;
 
@@ -76,27 +73,6 @@ export default function SearchPage() {
   const clearAllFilters = () => {
     setFilters({});
     setSearchQuery("");
-  };
-
-  const getStatusColor = (status: string) => {
-    switch (status) {
-      case "IN_STOCK":
-        return "bg-green-500";
-      case "IN_TRANSIT":
-        return "bg-blue-500";
-      case "SOLD":
-        return "bg-gray-500";
-      case "RESERVED":
-        return "bg-yellow-500";
-      case "DAMAGED":
-        return "bg-red-500";
-      default:
-        return "bg-gray-500";
-    }
-  };
-
-  const getStatusLabel = (status: string) => {
-    return status.replace(/_/g, " ");
   };
 
   const FilterContent = () => (
@@ -458,7 +434,7 @@ export default function SearchPage() {
           )}
           {filters.status && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-status">
-              Status: {getStatusLabel(filters.status)}
+              Status: {filters.status.replace(/_/g, " ")}
               <button
                 onClick={() => clearFilter("status")}
                 className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5"
@@ -494,59 +470,7 @@ export default function SearchPage() {
         ) : (
           <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             {garments.map((garment) => (
-              <Link key={garment.id} href={`/garment/${garment.code}`}>
-                <Card className="cursor-pointer hover-elevate active-elevate-2 h-full" data-testid={`card-garment-${garment.id}`}>
-                  <CardHeader className="pb-3">
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <CardTitle className="text-base font-mono">{garment.code}</CardTitle>
-                      <Badge className={`${getStatusColor(garment.status)} shrink-0 text-white`}>
-                        {getStatusLabel(garment.status)}
-                      </Badge>
-                    </div>
-                    <div className="flex flex-wrap gap-1.5">
-                      <Badge variant="outline" className="text-xs">
-                        {garment.size}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {garment.color}
-                      </Badge>
-                      <Badge variant="outline" className="text-xs">
-                        {garment.gender}
-                      </Badge>
-                    </div>
-                  </CardHeader>
-                  <CardContent>
-                    {garment.photoUrl ? (
-                      <img
-                        src={garment.photoUrl}
-                        alt={garment.code}
-                        className="w-full h-40 object-cover rounded-md mb-3"
-                      />
-                    ) : (
-                      <div className="w-full h-40 bg-muted rounded-md flex items-center justify-center mb-3">
-                        <Package2 className="h-16 w-16 text-muted-foreground" />
-                      </div>
-                    )}
-                    <div className="space-y-1 text-sm">
-                      {garment.category && (
-                        <p className="text-muted-foreground">
-                          <span className="font-medium">Category:</span> {garment.category.name}
-                        </p>
-                      )}
-                      {garment.garmentType && (
-                        <p className="text-muted-foreground">
-                          <span className="font-medium">Type:</span> {garment.garmentType.name}
-                        </p>
-                      )}
-                      {garment.rack && (
-                        <p className="text-muted-foreground">
-                          <span className="font-medium">Rack:</span> {garment.rack.name}
-                        </p>
-                      )}
-                    </div>
-                  </CardContent>
-                </Card>
-              </Link>
+              <GarmentCard key={garment.id} garment={garment} />
             ))}
           </div>
         )}

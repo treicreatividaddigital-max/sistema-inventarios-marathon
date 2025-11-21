@@ -61,6 +61,7 @@ const STEPS = [
 export default function CuratorNewGarmentPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -116,12 +117,30 @@ export default function CuratorNewGarmentPage() {
   // Create garment mutation
   const createGarmentMutation = useMutation({
     mutationFn: async (data: FormValues) => {
-      // Remove photoUrl if it's undefined or empty
-      const cleanData = {
-        ...data,
-        photoUrl: data.photoUrl || undefined,
-      };
-      return await apiRequest("POST", "/api/garments", cleanData);
+      // Si hay un archivo, enviar FormData; si no, enviar JSON
+      if (photoFile) {
+        const formData = new FormData();
+        formData.append("code", data.code);
+        formData.append("size", data.size);
+        formData.append("color", data.color);
+        formData.append("gender", data.gender);
+        formData.append("status", data.status ?? "IN_STOCK");
+        formData.append("categoryId", data.categoryId);
+        formData.append("garmentTypeId", data.garmentTypeId);
+        formData.append("collectionId", data.collectionId);
+        if (data.lotId) formData.append("lotId", data.lotId);
+        if (data.rackId) formData.append("rackId", data.rackId);
+        formData.append("photo", photoFile);
+
+        return await apiRequest("POST", "/api/garments", formData);
+      } else {
+        // Sin archivo, enviar JSON normal
+        const cleanData = {
+          ...data,
+          photoUrl: data.photoUrl || undefined,
+        };
+        return await apiRequest("POST", "/api/garments", cleanData);
+      }
     },
     onSuccess: () => {
       toast({
@@ -161,14 +180,19 @@ export default function CuratorNewGarmentPage() {
 
   const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        setPhotoPreview(reader.result as string);
-        form.setValue("photoUrl", reader.result as string);
-      };
-      reader.readAsDataURL(file);
-    }
+    if (!file) return;
+
+    // Guardamos el archivo real para enviarlo al backend
+    setPhotoFile(file);
+
+    // Usamos FileReader solo para mostrar el preview
+    const reader = new FileReader();
+    reader.onloadend = () => {
+      setPhotoPreview(reader.result as string);
+      // No necesitamos guardar el base64 en photoUrl, el backend usará el archivo
+      form.setValue("photoUrl", "");
+    };
+    reader.readAsDataURL(file);
   };
 
   const handleCameraCapture = async () => {
@@ -195,10 +219,18 @@ export default function CuratorNewGarmentPage() {
       const ctx = canvas.getContext('2d');
       ctx?.drawImage(video, 0, 0);
       
-      // Convert to data URL
+      // Convert canvas to blob and then to File
+      canvas.toBlob((blob) => {
+        if (blob) {
+          const file = new File([blob], `camera-${Date.now()}.jpg`, { type: 'image/jpeg' });
+          setPhotoFile(file);
+        }
+      }, 'image/jpeg', 0.8);
+      
+      // Convert to data URL for preview
       const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
       setPhotoPreview(dataUrl);
-      form.setValue("photoUrl", dataUrl);
+      form.setValue("photoUrl", "");
       
       // Stop camera
       stream.getTracks().forEach(track => track.stop());

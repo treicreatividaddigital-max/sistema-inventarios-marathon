@@ -64,10 +64,11 @@ The Smart Garment Inventory System is a comprehensive solution for managing garm
 
 ### API Endpoints
 
-#### Authentication
+#### Authentication & Users
 - `POST /api/auth/register` - Register new user
 - `POST /api/auth/login` - Login and receive JWT token
 - `GET /api/auth/me` - Get current user info
+- `POST /api/users` - Create new user (CURATOR only, rate limited)
 
 #### Categories
 - `GET /api/categories` - List all categories
@@ -133,6 +134,7 @@ The Smart Garment Inventory System is a comprehensive solution for managing garm
 - `/curator/collections` - Manage collections (CURATOR+)
 - `/curator/lots` - Manage lots (CURATOR+)
 - `/curator/racks` - Manage racks (CURATOR+)
+- `/curator/users` - Manage team members (CURATOR only)
 
 #### Authentication Flow
 1. User logs in with email/password

@@ -1,37 +1,107 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useLocation } from "wouter";
 import { ArrowLeft, Camera, X } from "lucide-react";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Scanner, IDetectedBarcode } from "@yudiel/react-qr-scanner";
 
 export default function CuratorScanPage() {
   const [, setLocation] = useLocation();
   const [isScanning, setIsScanning] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const processingRef = useRef(false);
 
   const startScanning = () => {
     setIsScanning(true);
+    setIsPaused(false);
     setError(null);
-    // TODO: Implement react-qr-reader integration
+    processingRef.current = false;
   };
 
   const stopScanning = () => {
     setIsScanning(false);
+    setIsPaused(false);
+    processingRef.current = false;
   };
 
-  const handleScan = (data: string | null) => {
-    if (data) {
-      // Detect if it's a garment or rack QR code
-      if (data.includes("/garment/")) {
-        const garmentId = data.split("/garment/")[1];
-        setLocation(`/garment/${garmentId}`);
-      } else if (data.includes("/rack/")) {
-        const rackId = data.split("/rack/")[1];
-        setLocation(`/rack/${rackId}`);
-      }
+  const isValidCode = (code: string): boolean => {
+    return code.length > 0 && code.length <= 100 && /^[a-zA-Z0-9\-_]+$/.test(code);
+  };
+
+  const handleScan = (detectedCodes: IDetectedBarcode[]) => {
+    if (!detectedCodes || detectedCodes.length === 0 || processingRef.current) {
+      return;
     }
+
+    const code = detectedCodes[0];
+    if (!code?.rawValue) {
+      return;
+    }
+
+    const data = code.rawValue;
+    let pathname: string;
+
+    try {
+      const url = new URL(data);
+      pathname = url.pathname;
+    } catch (e) {
+      setError("Invalid QR code format. Please scan a valid QR code from this application.");
+      setIsScanning(false);
+      processingRef.current = false;
+      return;
+    }
+
+    if (pathname.startsWith("/garment/")) {
+      const garmentCode = pathname.split("/garment/")[1]?.split("/")[0];
+      if (!garmentCode || !isValidCode(garmentCode)) {
+        setError("Invalid garment QR code: code format is incorrect.");
+        setIsScanning(false);
+        processingRef.current = false;
+        return;
+      }
+
+      processingRef.current = true;
+      setIsPaused(true);
+      setTimeout(() => {
+        setIsScanning(false);
+        setTimeout(() => {
+          setLocation(`/garment/${garmentCode}`);
+        }, 50);
+      }, 50);
+    } else if (pathname.startsWith("/rack/")) {
+      const rackCode = pathname.split("/rack/")[1]?.split("/")[0];
+      if (!rackCode || !isValidCode(rackCode)) {
+        setError("Invalid rack QR code: code format is incorrect.");
+        setIsScanning(false);
+        processingRef.current = false;
+        return;
+      }
+
+      processingRef.current = true;
+      setIsPaused(true);
+      setTimeout(() => {
+        setIsScanning(false);
+        setTimeout(() => {
+          setLocation(`/rack/${rackCode}`);
+        }, 50);
+      }, 50);
+    } else {
+      setError("Invalid QR code: must be a garment or rack code.");
+      setIsScanning(false);
+      processingRef.current = false;
+    }
+  };
+
+  const handleError = (error: unknown) => {
+    console.error("QR Scanner error:", error);
+    setIsScanning(false);
+    processingRef.current = false;
+
+    const errorMessage = error instanceof Error ? error.message : "Failed to access camera. Please check permissions.";
+    setError(errorMessage);
   };
 
   return (
@@ -76,10 +146,18 @@ export default function CuratorScanPage() {
           ) : (
             <div className="space-y-4">
               <div className="relative aspect-video bg-muted rounded-lg overflow-hidden">
-                {/* TODO: Integrate react-qr-reader component here */}
-                <div className="absolute inset-0 flex items-center justify-center">
-                  <div className="w-64 h-64 border-4 border-primary rounded-lg"></div>
-                </div>
+                <Scanner
+                  onScan={handleScan}
+                  onError={handleError}
+                  paused={isPaused}
+                  styles={{
+                    container: {
+                      width: "100%",
+                      height: "100%",
+                    },
+                  }}
+                  data-testid="qr-scanner"
+                />
               </div>
 
               <div className="flex justify-center gap-4">

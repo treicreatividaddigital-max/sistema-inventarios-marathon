@@ -1,6 +1,7 @@
 import { useRoute } from "wouter";
 import { ArrowLeft, Download, MapPin, Package, QrCode as QrCodeIcon } from "lucide-react";
 import { Link } from "wouter";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -11,6 +12,20 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
+import type { Garment, Category, GarmentType, Collection, Lot, Rack, Movement, User } from "@shared/schema";
+
+type GarmentWithRelations = Garment & {
+  category: Category;
+  garmentType: GarmentType;
+  collection: Collection;
+  lot: Lot;
+  rack: Rack | null;
+  movements: (Movement & {
+    fromRack?: Rack | null;
+    toRack?: Rack | null;
+    movedBy?: User;
+  })[];
+};
 
 const statusColors = {
   IN_STOCK: "bg-green-500",
@@ -21,38 +36,32 @@ const statusColors = {
 };
 
 export default function GarmentDetailPage() {
-  const [, params] = useRoute("/garment/:id");
-  const garmentId = params?.id;
+  const [, params] = useRoute("/garment/:code");
+  const garmentCode = params?.code;
 
-  // Mock data - will be replaced with API call
-  const garment = {
-    id: garmentId,
-    code: "GAR-2024-001",
-    size: "M",
-    color: "Navy Blue",
-    gender: "MALE",
-    status: "IN_STOCK",
-    photoUrl: null,
-    qrUrl: null,
-    category: { name: "Activewear" },
-    garmentType: { name: "T-Shirt" },
-    collection: { name: "Spring 2024" },
-    lot: { code: "LOT-001", name: "Batch Alpha" },
-    rack: { code: "R-A1", name: "Rack A1", zone: "Zone A" },
-  };
+  const { data, isLoading, error } = useQuery<GarmentWithRelations>({
+    queryKey: ["/api/garments/by-code", garmentCode],
+    enabled: !!garmentCode,
+  });
 
-  const movements = [
-    {
-      id: "1",
-      fromRack: null,
-      toRack: { code: "R-A1", name: "Rack A1" },
-      fromStatus: null,
-      toStatus: "IN_STOCK",
-      note: "Initial stock entry",
-      movedBy: { name: "Admin User" },
-      movedAt: new Date().toISOString(),
-    },
-  ];
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-lg text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-lg text-destructive">Garment not found</div>
+      </div>
+    );
+  }
+
+  const garment = data;
+  const movements = data.movements || [];
 
   return (
     <div className="space-y-6">

@@ -1,5 +1,6 @@
 import { db } from "./db";
-import { users, categories, garmentTypes, collections, lots, racks } from "@shared/schema";
+import { users, categories, garmentTypes, collections, lots, racks, garments, movements } from "@shared/schema";
+import { eq } from "drizzle-orm";
 import bcrypt from "bcrypt";
 
 const SALT_ROUNDS = 10;
@@ -8,6 +9,18 @@ async function seed() {
   console.log("🌱 Starting database seed...");
 
   try {
+    // Truncate all tables in reverse dependency order for idempotent seeding
+    console.log("Cleaning existing data...");
+    await db.delete(garments);
+    await db.delete(movements);
+    await db.delete(racks);
+    await db.delete(lots);
+    await db.delete(collections);
+    await db.delete(garmentTypes);
+    await db.delete(categories);
+    await db.delete(users);
+    console.log("✅ Database cleaned");
+
     // Create users
     console.log("Creating users...");
     const adminPassword = await bcrypt.hash("admin123", SALT_ROUNDS);
@@ -110,7 +123,8 @@ async function seed() {
         description: "Cross-training shoes",
         categoryId: footwear.id,
       },
-    ]);
+    ])
+    .onConflictDoNothing();
 
     console.log("✅ Garment types created");
 
@@ -132,6 +146,7 @@ async function seed() {
           description: "Summer collection 2024",
         },
       ])
+      .onConflictDoNothing()
       .returning();
 
     console.log("✅ Collections created");
@@ -163,13 +178,14 @@ async function seed() {
         description: "Second summer production batch",
         collectionId: summer2024.id,
       },
-    ]);
+    ])
+    .onConflictDoNothing();
 
     console.log("✅ Lots created");
 
     // Create racks
     console.log("Creating racks...");
-    await db.insert(racks).values([
+    const [rackA1, rackA2, rackB1, rackB2, rackC1] = await db.insert(racks).values([
       {
         code: "R-A1",
         name: "Rack A1",
@@ -195,9 +211,112 @@ async function seed() {
         name: "Rack C1",
         zone: "Zone C",
       },
-    ]);
+    ])
+    .onConflictDoNothing()
+    .returning();
 
     console.log("✅ Racks created");
+
+    // Get garment types and lots for creating sample garments
+    const [tshirtType] = await db
+      .select()
+      .from(garmentTypes)
+      .where(eq(garmentTypes.name, 'T-Shirt'));
+
+    const [hoodieType] = await db
+      .select()
+      .from(garmentTypes)
+      .where(eq(garmentTypes.name, 'Hoodie'));
+
+    const [sp24Lot1] = await db
+      .select()
+      .from(lots)
+      .where(eq(lots.code, 'LOT-SP24-001'));
+
+    const [su24Lot1] = await db
+      .select()
+      .from(lots)
+      .where(eq(lots.code, 'LOT-SU24-001'));
+
+    // Create sample garments
+    console.log("Creating sample garments...");
+    await db.insert(garments).values([
+      {
+        code: "GAR-SS24-ACT-TS-M-001",
+        size: "M",
+        color: "Navy Blue",
+        gender: "MALE",
+        status: "IN_STOCK",
+        categoryId: activewear.id,
+        garmentTypeId: tshirtType.id,
+        collectionId: spring2024.id,
+        lotId: sp24Lot1.id,
+        rackId: rackA1.id,
+        createdById: curator.id,
+      },
+      {
+        code: "GAR-SS24-ACT-TS-F-002",
+        size: "S",
+        color: "Pink",
+        gender: "FEMALE",
+        status: "IN_STOCK",
+        categoryId: activewear.id,
+        garmentTypeId: tshirtType.id,
+        collectionId: spring2024.id,
+        lotId: sp24Lot1.id,
+        rackId: rackA1.id,
+        createdById: curator.id,
+      },
+      {
+        code: "GAR-SU24-SPT-HD-M-003",
+        size: "L",
+        color: "Black",
+        gender: "MALE",
+        status: "IN_STOCK",
+        categoryId: sportswear.id,
+        garmentTypeId: hoodieType.id,
+        collectionId: summer2024.id,
+        lotId: su24Lot1.id,
+        rackId: rackB1.id,
+        createdById: curator.id,
+      },
+      {
+        code: "GAR-SU24-SPT-HD-F-004",
+        size: "M",
+        color: "Grey",
+        gender: "FEMALE",
+        status: "IN_STOCK",
+        categoryId: sportswear.id,
+        garmentTypeId: hoodieType.id,
+        collectionId: summer2024.id,
+        lotId: su24Lot1.id,
+        rackId: rackB1.id,
+        createdById: curator.id,
+      },
+    ])
+    .onConflictDoNothing();
+
+    console.log("✅ Sample garments created");
+
+    // Create sample movement records to show garment history
+    console.log("Creating sample movements...");
+    const createdGarments = await db.select().from(garments);
+    
+    for (const garment of createdGarments) {
+      // Create an initial stock entry movement for each garment
+      await db.insert(movements).values({
+        garmentId: garment.id,
+        fromRackId: null,
+        toRackId: garment.rackId,
+        fromStatus: null,
+        toStatus: garment.status,
+        note: "Initial stock entry",
+        movedById: curator.id,
+        movedAt: new Date(),
+      });
+    }
+
+    console.log("✅ Sample movements created");
 
     console.log("🎉 Database seeded successfully!");
     console.log("\nDefault credentials:");

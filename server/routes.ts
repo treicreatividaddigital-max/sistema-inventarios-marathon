@@ -607,6 +607,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.get("/api/racks/by-code/:code", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rack = await storage.getRackByCode(req.params.code);
+      if (!rack) {
+        return res.status(404).json({
+          statusCode: 404,
+          message: "Rack not found",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Get garments in this rack
+      const garments = await storage.getGarmentsByRack(rack.id);
+
+      res.json({
+        ...rack,
+        garments,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/racks/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const rack = await storage.getRack(req.params.id);
@@ -745,6 +768,41 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       const garments = await storage.searchGarments(filters);
       res.json(garments);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/garments/by-code/:code", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const garment = await storage.getGarmentByCode(req.params.code);
+      if (!garment) {
+        return res.status(404).json({
+          statusCode: 404,
+          message: "Garment not found",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Get all related data in parallel
+      const [movements, category, garmentType, collection, lot, rack] = await Promise.all([
+        storage.getMovementsByGarment(garment.id),
+        storage.getCategory(garment.categoryId),
+        storage.getGarmentType(garment.garmentTypeId),
+        storage.getCollection(garment.collectionId),
+        storage.getLot(garment.lotId),
+        garment.rackId ? storage.getRack(garment.rackId) : Promise.resolve(null),
+      ]);
+
+      res.json({
+        ...garment,
+        category,
+        garmentType,
+        collection,
+        lot,
+        rack,
+        movements,
+      });
     } catch (error) {
       next(error);
     }

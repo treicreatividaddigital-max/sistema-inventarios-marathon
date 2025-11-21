@@ -1,5 +1,6 @@
 import { useRoute, Link } from "wouter";
 import { ArrowLeft, MapPin, Package, QrCode as QrCodeIcon } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -9,21 +10,39 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import type { Rack, Garment } from "@shared/schema";
+
+type RackWithGarments = Rack & {
+  garments: Garment[];
+};
 
 export default function RackDetailPage() {
-  const [, params] = useRoute("/rack/:id");
-  const rackId = params?.id;
+  const [, params] = useRoute("/rack/:code");
+  const rackCode = params?.code;
 
-  // Mock data - will be replaced with API call
-  const rack = {
-    id: rackId,
-    code: "R-A1",
-    name: "Rack A1",
-    zone: "Zone A",
-    qrUrl: null,
-  };
+  const { data, isLoading, error } = useQuery<RackWithGarments>({
+    queryKey: ["/api/racks/by-code", rackCode],
+    enabled: !!rackCode,
+  });
 
-  const garments = [];
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-lg text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-lg text-destructive">Rack not found</div>
+      </div>
+    );
+  }
+
+  const rack = data;
+  const garments = data.garments || [];
 
   return (
     <div className="space-y-6">

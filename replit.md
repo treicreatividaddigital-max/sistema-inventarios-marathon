@@ -8,6 +8,14 @@ The Smart Garment Inventory System is a comprehensive solution for managing garm
 
 ## Recent Changes
 
+### 2024-11-21: PWA Implementation & Code-Based Routing
+- Migrated all routes from UUID-based to human-readable code-based (e.g., `/garment/GAR-SS24-ACT-TS-M-001`)
+- Implemented complete PWA support with manifest, service worker, and offline caching
+- Generated 8 unique PWA icons (72x72 to 512x512px) using AI
+- Created idempotent seed script with movement history tracking
+- Enhanced backend APIs to return fully hydrated data with all relations
+- Passed comprehensive E2E tests for QR scanner → detail page flow
+
 ### 2024-11-20: Initial Implementation
 - Created complete database schema with 8 models (Users, Categories, GarmentTypes, Collections, Lots, Racks, Garments, Movements)
 - Implemented full authentication system with JWT tokens and bcrypt password hashing
@@ -25,6 +33,7 @@ The Smart Garment Inventory System is a comprehensive solution for managing garm
 - **UI**: Tailwind CSS + Shadcn/UI components
 - **Authentication**: JWT tokens + bcrypt
 - **QR Codes**: qrcode library
+- **PWA**: Service Worker with offline caching, manifest.json, installable
 
 ### Database Schema
 
@@ -168,9 +177,40 @@ tsx server/seed.ts
 - `SESSION_SECRET` - Secret for JWT signing
 - `NODE_ENV` - development or production
 
+## Progressive Web App (PWA) Support
+
+### Manifest Configuration
+- **File**: `client/public/manifest.json`
+- **Name**: Smart Garment Inventory
+- **Icons**: 8 unique sizes (72x72 to 512x512px) generated via AI
+- **Display**: Standalone mode (full-screen, no browser UI)
+- **Theme Color**: #3b82f6 (blue)
+- **Shortcuts**: Quick access to "Scan QR" and "New Garment"
+- **Categories**: business, productivity
+
+### Service Worker Offline Support
+- **File**: `client/public/sw.js`
+- **Cache Strategy**:
+  - Static assets (HTML, manifest, icons): Precached on install
+  - App shell bundles (JS/CSS): Discovered from HTML and precached
+  - Vite ES modules (.tsx, .ts): Runtime caching on first load
+  - Images, fonts, assets: Cache-first strategy
+  - API calls: Network-only (no caching of dynamic data)
+  
+### Installation
+- Installable on mobile (Android/iOS) and desktop (Chrome, Edge)
+- Add to home screen prompt appears automatically
+- Works offline after first visit (requires network for initial load)
+
+### Development vs Production
+- **Development Mode**: Vite ES modules are cached at runtime (first online visit required)
+- **Production Mode**: All bundles precached from built assets
+
+**Note**: Complete offline support (cold start without prior network) requires production build with all module dependencies bundled.
+
 ## Next Steps
-1. Add PWA configuration for offline support
-2. Implement barcode/QR scanner functionality
+1. ~~Add PWA configuration for offline support~~ ✅ COMPLETED
+2. ~~Implement barcode/QR scanner functionality~~ ✅ COMPLETED
 3. Add comprehensive error handling and validation
-4. Implement movement history tracking
+4. ~~Implement movement history tracking~~ ✅ COMPLETED
 5. Add data export/import features

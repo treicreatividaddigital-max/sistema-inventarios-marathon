@@ -33,8 +33,8 @@ function AuthenticatedRoutes() {
       <Route path="/curator" component={CuratorPage} />
       <Route path="/dashboard" component={DashboardPage} />
       <Route path="/search" component={SearchPage} />
-      <Route path="/garment/:id" component={GarmentDetailPage} />
-      <Route path="/rack/:id" component={RackDetailPage} />
+      <Route path="/garment/:code" component={GarmentDetailPage} />
+      <Route path="/rack/:code" component={RackDetailPage} />
       <Route path="/curator/scan" component={CuratorScanPage} />
       <Route path="/curator/garments/new" component={CuratorNewGarmentPage} />
       <Route path="/curator/print-qrs" component={CuratorPrintQRsPage} />

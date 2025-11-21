@@ -2,8 +2,15 @@ import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
-    const text = (await res.text()) || res.statusText;
-    throw new Error(`${res.status}: ${text}`);
+    let message = res.statusText;
+    try {
+      const data = await res.json();
+      message = data.message || message;
+    } catch {
+      const text = await res.text();
+      if (text) message = text;
+    }
+    throw new Error(message);
   }
 }
 
@@ -23,18 +30,22 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<any> {
-  const headers: Record<string, string> = {
-    ...getAuthHeaders(),
-  };
+  const headers = new Headers(getAuthHeaders());
 
-  if (data) {
-    headers["Content-Type"] = "application/json";
+  let body: BodyInit | undefined = undefined;
+
+  if (data instanceof FormData) {
+    // NO ponemos Content-Type, el navegador lo setea con boundary
+    body = data;
+  } else if (data !== undefined) {
+    headers.set("Content-Type", "application/json");
+    body = JSON.stringify(data);
   }
 
   const res = await fetch(url, {
     method,
     headers,
-    body: data ? JSON.stringify(data) : undefined,
+    body,
     credentials: "include",
   });
 

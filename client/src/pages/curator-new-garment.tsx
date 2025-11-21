@@ -46,6 +46,7 @@ const formSchema = insertGarmentSchema.extend({
   garmentTypeId: z.string().uuid("Must select a type"),
   collectionId: z.string().uuid("Must select a collection"),
   lotId: z.string().uuid("Must select a lot"),
+  photoUrl: z.string().optional(), // Photo is optional
 }).omit({ createdById: true, qrUrl: true });
 
 type FormValues = z.infer<typeof formSchema>;
@@ -114,7 +115,12 @@ export default function CuratorNewGarmentPage() {
   // Create garment mutation
   const createGarmentMutation = useMutation({
     mutationFn: async (data: FormValues) => {
-      return await apiRequest("POST", "/api/garments", data);
+      // Remove photoUrl if it's undefined or empty
+      const cleanData = {
+        ...data,
+        photoUrl: data.photoUrl || undefined,
+      };
+      return await apiRequest("POST", "/api/garments", cleanData);
     },
     onSuccess: () => {
       toast({
@@ -124,10 +130,13 @@ export default function CuratorNewGarmentPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/garments"] });
       navigate("/curator");
     },
-    onError: (error: Error) => {
+    onError: (error: any) => {
+      // Show the real server error message
+      const errorMessage = error?.message || error?.error || "Unknown error occurred";
+      console.error("Error creating garment:", error);
       toast({
         title: "Error creating garment",
-        description: error.message || "Please try again",
+        description: errorMessage,
         variant: "destructive",
       });
     },
@@ -550,7 +559,7 @@ export default function CuratorNewGarmentPage() {
                     name="photoUrl"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Product Photo</FormLabel>
+                        <FormLabel>Product Photo (Optional)</FormLabel>
                         <FormControl>
                           <div className="space-y-4">
                             {photoPreview ? (
@@ -569,6 +578,7 @@ export default function CuratorNewGarmentPage() {
                                     setPhotoPreview(null);
                                     form.setValue("photoUrl", undefined);
                                   }}
+                                  data-testid="button-remove-photo"
                                 >
                                   Remove
                                 </Button>

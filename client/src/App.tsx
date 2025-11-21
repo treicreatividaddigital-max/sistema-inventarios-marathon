@@ -24,6 +24,7 @@ import CuratorTypesPage from "@/pages/curator-types";
 import CuratorCollectionsPage from "@/pages/curator-collections";
 import CuratorLotsPage from "@/pages/curator-lots";
 import CuratorRacksPage from "@/pages/curator-racks";
+import CuratorUsersPage from "@/pages/curator-users";
 
 // Authenticated routes that use the sidebar layout
 function AuthenticatedRoutes() {
@@ -43,6 +44,7 @@ function AuthenticatedRoutes() {
       <Route path="/curator/collections" component={CuratorCollectionsPage} />
       <Route path="/curator/lots" component={CuratorLotsPage} />
       <Route path="/curator/racks" component={CuratorRacksPage} />
+      <Route path="/curator/users" component={CuratorUsersPage} />
       <Route component={NotFound} />
     </Switch>
   );

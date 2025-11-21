@@ -104,6 +104,7 @@ export default function CuratorTypesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/garment-types"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       toast({
         title: "Type created",
         description: "The garment type has been created successfully.",
@@ -126,6 +127,7 @@ export default function CuratorTypesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/garment-types"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       toast({
         title: "Type updated",
         description: "The garment type has been updated successfully.",
@@ -148,7 +150,9 @@ export default function CuratorTypesPage() {
       return await apiRequest("DELETE", `/api/garment-types/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/garment-types"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/garment-types"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/garments"] });
       toast({
         title: "Type deleted",
         description: "The garment type has been deleted successfully.",

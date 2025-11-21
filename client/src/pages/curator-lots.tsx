@@ -104,6 +104,7 @@ export default function CuratorLotsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/lots"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/collections"] });
       toast({
         title: "Lot created",
         description: "The production lot has been created successfully.",
@@ -126,6 +127,7 @@ export default function CuratorLotsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/lots"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/collections"] });
       toast({
         title: "Lot updated",
         description: "The production lot has been updated successfully.",
@@ -148,7 +150,9 @@ export default function CuratorLotsPage() {
       return await apiRequest("DELETE", `/api/lots/${id}`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/lots"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lots"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/collections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/garments"] });
       toast({
         title: "Lot deleted",
         description: "The production lot has been deleted successfully.",

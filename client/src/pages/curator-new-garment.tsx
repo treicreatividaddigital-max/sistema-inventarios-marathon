@@ -5,7 +5,7 @@ import { insertGarmentSchema, type InsertGarment, type Category, type GarmentTyp
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { apiRequest, queryClient } from "@/lib/queryClient";
 import { z } from "zod";
-import { ArrowLeft, ArrowRight, Check, Loader2, Upload } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, Loader2, Upload, Camera } from "lucide-react";
 import { useLocation } from "wouter";
 import { Button } from "@/components/ui/button";
 import {
@@ -61,6 +61,7 @@ const STEPS = [
 export default function CuratorNewGarmentPage() {
   const [currentStep, setCurrentStep] = useState(1);
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
   const { toast } = useToast();
   const [, navigate] = useLocation();
 
@@ -167,6 +168,53 @@ export default function CuratorNewGarmentPage() {
         form.setValue("photoUrl", reader.result as string);
       };
       reader.readAsDataURL(file);
+    }
+  };
+
+  const handleCameraCapture = async () => {
+    try {
+      setIsCapturingPhoto(true);
+      const stream = await navigator.mediaDevices.getUserMedia({ 
+        video: { facingMode: "environment" } // Use rear camera on mobile
+      });
+      
+      // Create video element to capture frame
+      const video = document.createElement('video');
+      video.srcObject = stream;
+      video.play();
+      
+      // Wait for video to be ready
+      await new Promise((resolve) => {
+        video.onloadedmetadata = resolve;
+      });
+      
+      // Create canvas to capture frame
+      const canvas = document.createElement('canvas');
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      ctx?.drawImage(video, 0, 0);
+      
+      // Convert to data URL
+      const dataUrl = canvas.toDataURL('image/jpeg', 0.8);
+      setPhotoPreview(dataUrl);
+      form.setValue("photoUrl", dataUrl);
+      
+      // Stop camera
+      stream.getTracks().forEach(track => track.stop());
+      setIsCapturingPhoto(false);
+      
+      toast({
+        title: "Photo captured",
+        description: "Photo has been captured successfully",
+      });
+    } catch (error: any) {
+      setIsCapturingPhoto(false);
+      toast({
+        title: "Camera error",
+        description: error.message || "Could not access camera",
+        variant: "destructive",
+      });
     }
   };
 
@@ -584,29 +632,52 @@ export default function CuratorNewGarmentPage() {
                                 </Button>
                               </div>
                             ) : (
-                              <label className="flex flex-col items-center justify-center w-full aspect-[3/4] max-w-sm mx-auto border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
-                                <div className="flex flex-col items-center justify-center py-8">
-                                  <Upload className="h-12 w-12 text-muted-foreground mb-4" />
-                                  <p className="text-sm font-medium mb-1">
-                                    Click to upload
-                                  </p>
-                                  <p className="text-xs text-muted-foreground">
-                                    PNG, JPG up to 10MB
-                                  </p>
+                              <div className="space-y-3">
+                                <label className="flex flex-col items-center justify-center w-full aspect-[3/4] max-w-sm mx-auto border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
+                                  <div className="flex flex-col items-center justify-center py-8">
+                                    <Upload className="h-12 w-12 text-muted-foreground mb-4" />
+                                    <p className="text-sm font-medium mb-1">
+                                      Click to upload
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                      PNG, JPG up to 10MB
+                                    </p>
+                                  </div>
+                                  <input
+                                    type="file"
+                                    className="hidden"
+                                    accept="image/*"
+                                    onChange={handlePhotoChange}
+                                    data-testid="input-photo"
+                                  />
+                                </label>
+                                <div className="flex justify-center">
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={handleCameraCapture}
+                                    disabled={isCapturingPhoto}
+                                    data-testid="button-camera"
+                                  >
+                                    {isCapturingPhoto ? (
+                                      <>
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Opening camera...
+                                      </>
+                                    ) : (
+                                      <>
+                                        <Camera className="mr-2 h-4 w-4" />
+                                        Take Photo
+                                      </>
+                                    )}
+                                  </Button>
                                 </div>
-                                <input
-                                  type="file"
-                                  className="hidden"
-                                  accept="image/*"
-                                  onChange={handlePhotoChange}
-                                  data-testid="input-photo"
-                                />
-                              </label>
+                              </div>
                             )}
                           </div>
                         </FormControl>
                         <FormDescription>
-                          Optional: Upload a photo of the garment
+                          Optional: Upload or capture a photo of the garment
                         </FormDescription>
                         <FormMessage />
                       </FormItem>

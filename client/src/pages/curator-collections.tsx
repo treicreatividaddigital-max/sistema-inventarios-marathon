@@ -87,6 +87,7 @@ export default function CuratorCollectionsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/collections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lots"], exact: false });
       toast({
         title: "Collection created",
         description: "The collection has been created successfully.",
@@ -109,6 +110,7 @@ export default function CuratorCollectionsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/collections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lots"], exact: false });
       toast({
         title: "Collection updated",
         description: "The collection has been updated successfully.",
@@ -132,6 +134,8 @@ export default function CuratorCollectionsPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/collections"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/lots"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/garments"] });
       toast({
         title: "Collection deleted",
         description: "The collection has been deleted successfully.",

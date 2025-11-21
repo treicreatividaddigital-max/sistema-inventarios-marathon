@@ -8,6 +8,15 @@ The Smart Garment Inventory System is a comprehensive solution for managing garm
 
 ## Recent Changes
 
+### 2024-11-21: Cache Optimization & User Management
+- **Fixed cache invalidation issues**: Expanded query invalidation with `exact: false` to include dynamic queries (e.g., `/api/lots/by-collection/:id`)
+- **Reduced staleTime**: Changed from Infinity to 30 seconds to prevent stale data
+- **Enabled refetchOnWindowFocus**: Queries now refetch when window gains focus
+- **Camera capture support**: Added "Take Photo" button in New Garment using navigator.mediaDevices.getUserMedia
+- **Team Management**: Created `/curator/users` page for curators to add Admin and Curator team members
+- **Security enhancements**: Added rate limiting and audit logging to user creation endpoint
+- All management pages (Categories, Types, Collections, Lots, Racks) now properly invalidate dependent queries
+
 ### 2024-11-21: PWA Implementation & Code-Based Routing
 - Migrated all routes from UUID-based to human-readable code-based (e.g., `/garment/GAR-SS24-ACT-TS-M-001`)
 - Implemented complete PWA support with manifest, service worker, and offline caching

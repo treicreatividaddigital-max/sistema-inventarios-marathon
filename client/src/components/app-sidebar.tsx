@@ -12,6 +12,7 @@ import {
   Printer,
   LogOut,
   BarChart3,
+  Users,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import {
@@ -70,6 +71,7 @@ export function AppSidebar() {
       { title: "Collections", url: "/curator/collections", icon: Layers },
       { title: "Lots", url: "/curator/lots", icon: Box },
       { title: "Racks", url: "/curator/racks", icon: Package },
+      { title: "Team", url: "/curator/users", icon: Users },
     ],
   };
 

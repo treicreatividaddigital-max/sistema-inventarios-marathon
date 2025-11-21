@@ -85,7 +85,9 @@ export default function CuratorCategoriesPage() {
       return await apiRequest("POST", "/api/categories", data);
     },
     onSuccess: () => {
+      // Invalidate all related queries to ensure New Garment sees updates
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/garment-types"] });
       toast({
         title: "Category created",
         description: "The category has been created successfully.",
@@ -107,7 +109,9 @@ export default function CuratorCategoriesPage() {
       return await apiRequest("PATCH", `/api/categories/${id}`, data);
     },
     onSuccess: () => {
+      // Invalidate all related queries
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/garment-types"] });
       toast({
         title: "Category updated",
         description: "The category has been updated successfully.",
@@ -130,7 +134,10 @@ export default function CuratorCategoriesPage() {
       return await apiRequest("DELETE", `/api/categories/${id}`);
     },
     onSuccess: () => {
+      // Invalidate all related queries
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/garment-types"], exact: false });
+      queryClient.invalidateQueries({ queryKey: ["/api/garments"] });
       toast({
         title: "Category deleted",
         description: "The category has been deleted successfully.",

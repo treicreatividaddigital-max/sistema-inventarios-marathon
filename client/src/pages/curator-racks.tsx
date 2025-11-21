@@ -85,6 +85,7 @@ export default function CuratorRacksPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/racks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/garments"] });
       toast({
         title: "Rack created",
         description: "The storage rack has been created successfully.",
@@ -107,6 +108,7 @@ export default function CuratorRacksPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/racks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/garments"] });
       toast({
         title: "Rack updated",
         description: "The storage rack has been updated successfully.",
@@ -130,6 +132,7 @@ export default function CuratorRacksPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/racks"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/garments"] });
       toast({
         title: "Rack deleted",
         description: "The storage rack has been deleted successfully.",

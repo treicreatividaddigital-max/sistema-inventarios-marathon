@@ -296,6 +296,78 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/users - Create new user (CURATOR only)
+  app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      // Only CURATOR can create users
+      if (req.user!.role !== "CURATOR") {
+        return res.status(403).json({
+          statusCode: 403,
+          message: "Only curators can create users",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const { email, password, name, role } = req.body;
+
+      if (!email || !password || !name || !role) {
+        return res.status(400).json({
+          statusCode: 400,
+          message: "Email, password, name, and role are required",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Validate password strength
+      if (password.length < 6) {
+        return res.status(400).json({
+          statusCode: 400,
+          message: "Password must be at least 6 characters",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // Validate role
+      if (!["ADMIN", "CURATOR"].includes(role)) {
+        return res.status(400).json({
+          statusCode: 400,
+          message: "Role must be ADMIN or CURATOR",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const existingUser = await storage.getUserByEmail(email);
+      if (existingUser) {
+        return res.status(409).json({
+          statusCode: 409,
+          message: "Email already exists",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+
+      const newUser = await storage.createUser({
+        email,
+        password: hashedPassword,
+        name,
+        role: role as "ADMIN" | "CURATOR",
+      });
+
+      // Log user creation for audit purposes
+      console.log(`[AUDIT] User created - ID: ${newUser.id}, Email: ${newUser.email}, Role: ${newUser.role}, Created by: ${req.user!.email}`);
+
+      res.status(201).json({
+        id: newUser.id,
+        email: newUser.email,
+        name: newUser.name,
+        role: newUser.role,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // =====================
   // CATEGORIES ROUTES
   // =====================

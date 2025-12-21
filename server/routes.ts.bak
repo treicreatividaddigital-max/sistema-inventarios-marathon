@@ -6,8 +6,6 @@ import bcrypt from "bcrypt";
 import jwt from "jsonwebtoken";
 import QRCode from "qrcode";
 import multer from "multer";
-import { Storage as GCSStorage } from "@google-cloud/storage";
-import { randomUUID } from "crypto";
 import path from "path";
 import { storage } from "./storage";
 
@@ -20,49 +18,27 @@ const JWT_SECRET: string = JWT_SECRET_ENV;
 const SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS || "10", 10);
 
 // File upload configuration
-const GCS_BUCKET_NAME = process.env.GCS_BUCKET;
-const gcsBucket = GCS_BUCKET_NAME ? new GCSStorage().bucket(GCS_BUCKET_NAME) : null;
-
-function extFromMime(mime: string, originalName: string): string {
-  const ext = path.extname(originalName || "").toLowerCase();
-  if (ext) return ext;
-  if (mime === "image/jpeg") return ".jpg";
-  if (mime === "image/png") return ".png";
-  if (mime === "image/webp") return ".webp";
-  return "";
-}
-
-async function uploadToGCS(file: Express.Multer.File): Promise<string> {
-  if (!gcsBucket) throw new Error("GCS_BUCKET is not configured");
-  const ext = extFromMime(file.mimetype, file.originalname);
-  const objectName = `photo-${Date.now()}-${randomUUID()}${ext}`;
-  await gcsBucket.file(objectName).save(file.buffer, {
-    resumable: false,
-    contentType: file.mimetype,
-    metadata: { cacheControl: "public, max-age=31536000" },
-  });
-  return objectName;
-}
-
 const upload = multer({
-  storage: gcsBucket
-    ? multer.memoryStorage()
-    : multer.diskStorage({
-        destination: (req, file, cb) => cb(null, "uploads/"),
-        filename: (req, file, cb) => {
-          const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-          cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
-        },
-      }),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => {
+      cb(null, "uploads/");
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
+      cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
+    },
+  }),
+  limits: {
+    fileSize: 10 * 1024 * 1024, // 10MB limit
+  },
   fileFilter: (req, file, cb) => {
-  const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-  if (allowedTypes.includes(file.mimetype)) {
-    cb(null, true);
-  } else {
-    cb(new Error("Invalid file type. Only JPEG, PNG, and WebP are allowed."));
-  }
-},
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Invalid file type. Only JPEG, PNG, and WebP are allowed."));
+    }
+  },
 });
 
 // Rate limiting for auth endpoints
@@ -163,35 +139,14 @@ const generateQRCode = async (data: string): Promise<string> => {
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Uploads:
-// - Local dev: store files in ./uploads and serve at /uploads
-// - Cloud Run: store files in Google Cloud Storage (GCS_BUCKET) and serve via /api/photos/:name
-if (!gcsBucket) {
+  // Ensure uploads directory exists
   const fs = await import("fs");
   if (!fs.existsSync("uploads")) {
     fs.mkdirSync("uploads");
   }
+
+  // Serve static files from uploads directory
   app.use("/uploads", express.static("uploads"));
-} else {
-  app.get("/api/photos/:name", async (req, res, next) => {
-    try {
-      const name = req.params.name;
-      const file = gcsBucket.file(name);
-      const [exists] = await file.exists();
-      if (!exists) return res.status(404).send("Not found");
-
-      const [meta] = await file.getMetadata();
-      if (meta.contentType) res.setHeader("Content-Type", meta.contentType);
-      if (meta.cacheControl) res.setHeader("Cache-Control", meta.cacheControl);
-
-      file.createReadStream()
-        .on("error", next)
-        .pipe(res);
-    } catch (err) {
-      next(err);
-    }
-  });
-}
 
   // CORS configuration
   app.use((req, res, next) => {
@@ -1023,15 +978,7 @@ if (!gcsBucket) {
         const qrUrl = await generateQRCode(garmentUrl);
 
         // Determine photo URL: from uploaded file or from JSON body
-        let photoUrl = bodyPhotoUrl || null;
-if (req.file) {
-  if (gcsBucket) {
-    const objectName = await uploadToGCS(req.file);
-    photoUrl = `/api/photos/${encodeURIComponent(objectName)}`;
-  } else {
-    photoUrl = `/uploads/${req.file.filename}`;
-  }
-}
+        const photoUrl = req.file ? `/uploads/${req.file.filename}` : (bodyPhotoUrl || null);
 
         const garment = await storage.createGarment({
           code,
@@ -1094,12 +1041,7 @@ if (req.file) {
 
         // If a new photo was uploaded, update the photoUrl
         if (req.file) {
-          if (gcsBucket) {
-  const objectName = await uploadToGCS(req.file);
-  updateData.photoUrl = `/api/photos/${encodeURIComponent(objectName)}`;
-} else {
-  updateData.photoUrl = `/uploads/${req.file.filename}`;
-}
+          updateData.photoUrl = `/uploads/${req.file.filename}`;
         }
 
         // If photoUrl is explicitly set to empty string or null, clear it

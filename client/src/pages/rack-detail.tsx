@@ -33,25 +33,7 @@ export default function RackDetailPage() {
     enabled: !!rackCode,
   });
 
-  if (isLoading) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-lg text-muted-foreground">Loading...</div>
-      </div>
-    );
-  }
-
-  if (error || !data) {
-    return (
-      <div className="flex items-center justify-center h-screen">
-        <div className="text-lg text-destructive">Rack not found</div>
-      </div>
-    );
-  }
-
-  const rack = data;
-  const garments = data.garments || [];
-
+  // --- Rack actions state (must be before any conditional returns) ---
   const [moveOpen, setMoveOpen] = useState(false);
   const [toRackId, setToRackId] = useState<string>("");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
@@ -64,14 +46,19 @@ export default function RackDetailPage() {
   });
 
   const destinationRacks = useMemo(() => {
-    return (allRacks || []).filter((r) => r.id !== rack.id);
-  }, [allRacks, rack.id]);
+    const currentRackId = data?.id;
+    return (allRacks || []).filter((r) => r.id !== currentRackId);
+  }, [allRacks, data?.id]);
 
+  const rackGarments = useMemo(() => (data?.garments || []), [data]);
   const selectedCount = useMemo(() => selectedIds.size, [selectedIds]);
-  const allSelected = useMemo(() => garments.length > 0 && selectedIds.size === garments.length, [selectedIds, garments.length]);
+  const allSelected = useMemo(
+    () => rackGarments.length > 0 && selectedIds.size === rackGarments.length,
+    [selectedIds, rackGarments.length]
+  );
 
   const toggleAll = (checked: boolean) => {
-    if (checked) setSelectedIds(new Set(garments.map((g) => g.id)));
+    if (checked) setSelectedIds(new Set(rackGarments.map((g) => g.id)));
     else setSelectedIds(new Set());
   };
 
@@ -85,9 +72,12 @@ export default function RackDetailPage() {
   };
 
   const handlePrintQr = async () => {
+    const rackCode = data?.code;
+    if (!rackCode) return;
+
     setIsPrinting(true);
     try {
-      const resp = await apiRequest("GET", `/api/racks/by-code/${encodeURIComponent(rack.code)}/qr`);
+      const resp = await apiRequest("GET", `/api/racks/by-code/${encodeURIComponent(rackCode)}/qr`);
       const w = window.open("", "_blank", "noopener,noreferrer");
       if (!w) {
         toast({ title: "Print blocked", description: "Allow popups to print the QR code.", variant: "destructive" });
@@ -120,9 +110,7 @@ export default function RackDetailPage() {
       w.document.close();
       w.focus();
       setTimeout(() => w.print(), 250);
-
-      // refresh rack query so qrUrl displayed in UI becomes correct
-      queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/racks/by-code" });
+      queryClient.invalidateQueries();
     } catch (e: any) {
       toast({ title: "Print failed", description: e?.message || String(e), variant: "destructive" });
     } finally {
@@ -134,11 +122,14 @@ export default function RackDetailPage() {
     setMoveOpen(open);
     if (open) {
       setToRackId("");
-      setSelectedIds(new Set(garments.map((g) => g.id))); // default: all
+      setSelectedIds(new Set(rackGarments.map((g) => g.id))); // default all
     }
   };
 
   const handleMove = async () => {
+    const rackId = data?.id;
+    if (!rackId) return;
+
     if (!toRackId) {
       toast({ title: "Select destination rack", variant: "destructive" });
       return;
@@ -152,14 +143,12 @@ export default function RackDetailPage() {
     try {
       const ids = Array.from(selectedIds);
       const payload: any = { toRackId };
-      if (ids.length !== garments.length) payload.garmentIds = ids;
+      if (ids.length !== rackGarments.length) payload.garmentIds = ids;
 
-      const resp = await apiRequest("POST", `/api/racks/${rack.id}/move-garments`, payload);
-
+      const resp = await apiRequest("POST", `/api/racks/${rackId}/move-garments`, payload);
       toast({ title: "Moved", description: `Moved ${resp.movedCount} garment(s).` });
-      handleOpenMove(false);
 
-      // refresh current rack view + lists
+      handleOpenMove(false);
       queryClient.invalidateQueries();
     } catch (e: any) {
       toast({ title: "Move failed", description: e?.message || String(e), variant: "destructive" });
@@ -168,6 +157,27 @@ export default function RackDetailPage() {
     }
   };
 
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-lg text-muted-foreground">Loading...</div>
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex items-center justify-center h-screen">
+        <div className="text-lg text-destructive">Rack not found</div>
+      </div>
+    );
+  }
+
+  const rack = data;
+  const garments = data.garments || [];
+
+  
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">

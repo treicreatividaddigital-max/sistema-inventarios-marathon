@@ -75,15 +75,31 @@ export default function RackDetailPage() {
     const rackCode = data?.code;
     if (!rackCode) return;
 
+    // Open popup FIRST (must be inside user gesture, before any await)
+    const w = window.open("", "_blank", "noopener,noreferrer");
+    if (!w) {
+      toast({
+        title: "Print blocked",
+        description: "Allow popups for this site to print the QR code.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    // Minimal loading UI
+    w.document.write(`<!doctype html>
+<html><head><meta charset="utf-8" /><title>Preparing…</title></head>
+<body style="font-family: system-ui; padding: 24px;">
+  <h3>Preparing QR…</h3>
+  <p>You can close this tab if it doesn’t load.</p>
+</body></html>`);
+    w.document.close();
+
     setIsPrinting(true);
     try {
       const resp = await apiRequest("GET", `/api/racks/by-code/${encodeURIComponent(rackCode)}/qr`);
-      const w = window.open("", "_blank", "noopener,noreferrer");
-      if (!w) {
-        toast({ title: "Print blocked", description: "Allow popups to print the QR code.", variant: "destructive" });
-        return;
-      }
 
+      w.document.open();
       w.document.write(`<!doctype html>
 <html>
 <head>
@@ -110,8 +126,14 @@ export default function RackDetailPage() {
       w.document.close();
       w.focus();
       setTimeout(() => w.print(), 250);
+
       queryClient.invalidateQueries();
     } catch (e: any) {
+      try {
+        w.document.open();
+        w.document.write(`<pre style="font-family: ui-monospace; padding: 16px;">Print failed: ${String(e?.message || e)}</pre>`);
+        w.document.close();
+      } catch {}
       toast({ title: "Print failed", description: e?.message || String(e), variant: "destructive" });
     } finally {
       setIsPrinting(false);

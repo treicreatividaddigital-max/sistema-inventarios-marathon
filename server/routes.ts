@@ -11,6 +11,39 @@ import { randomUUID } from "crypto";
 import path from "path";
 import { storage } from "./storage";
 
+
+// Hydrate garments for list/search responses (avoid "missing rack/lot" false positives in UI)
+async function hydrateGarmentList(garments: any[]) {
+  const categoryCache = new Map<string, any | null>();
+  const garmentTypeCache = new Map<string, any | null>();
+  const collectionCache = new Map<string, any | null>();
+  const lotCache = new Map<string, any | null>();
+  const rackCache = new Map<string, any | null>();
+
+  const getCached = async (
+    cache: Map<string, any | null>,
+    id: string | null | undefined,
+    getter: (id: string) => Promise<any | undefined>
+  ) => {
+    if (!id) return null;
+    if (cache.has(id)) return cache.get(id)!;
+    const v = (await getter(id)) ?? null;
+    cache.set(id, v);
+    return v;
+  };
+
+  return await Promise.all(
+    garments.map(async (g) => ({
+      ...g,
+      category: await getCached(categoryCache, g.categoryId, storage.getCategory.bind(storage)),
+      garmentType: await getCached(garmentTypeCache, g.garmentTypeId, storage.getGarmentType.bind(storage)),
+      collection: await getCached(collectionCache, g.collectionId, storage.getCollection.bind(storage)),
+      lot: await getCached(lotCache, g.lotId, storage.getLot.bind(storage)),
+      rack: await getCached(rackCache, g.rackId ?? null, storage.getRack.bind(storage)),
+    }))
+  );
+}
+
 // JWT Secret and bcrypt configuration from environment
 const JWT_SECRET_ENV = process.env.JWT_SECRET;
 if (!JWT_SECRET_ENV) {
@@ -905,7 +938,8 @@ if (!gcsBucket) {
       });
 
       const garments = await storage.searchGarments(filters);
-      res.json(garments);
+      const hydrated = await hydrateGarmentList(garments);
+      res.json(hydrated);
     } catch (error) {
       next(error);
     }
@@ -936,7 +970,8 @@ if (!gcsBucket) {
       });
 
       const garments = await storage.searchGarments(filters);
-      res.json(garments);
+      const hydrated = await hydrateGarmentList(garments);
+      res.json(hydrated);
     } catch (error) {
       next(error);
     }

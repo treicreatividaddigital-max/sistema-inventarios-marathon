@@ -810,10 +810,11 @@ if (!gcsBucket) {
 
       // Get garments in this rack
       const garments = await storage.getGarmentsByRack(rack.id);
+      const hydratedGarments = await hydrateGarmentList(garments);
 
       res.json({
         ...rack,
-        garments,
+        garments: hydratedGarments,
       });
     } catch (error) {
       next(error);
@@ -833,10 +834,11 @@ if (!gcsBucket) {
 
       // Get garments in this rack
       const garments = await storage.getGarmentsByRack(req.params.id);
+      const hydratedGarments = await hydrateGarmentList(garments);
 
       res.json({
         ...rack,
-        garments,
+        garments: hydratedGarments,
       });
     } catch (error) {
       next(error);

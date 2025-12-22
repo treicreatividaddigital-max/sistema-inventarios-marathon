@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import { useRoute, Link } from "wouter";
 import { ArrowLeft, MapPin, Package, QrCode as QrCodeIcon } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
@@ -10,6 +11,12 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { toast } from "@/hooks/use-toast";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { ScrollArea } from "@/components/ui/scroll-area";
+import { Checkbox } from "@/components/ui/checkbox";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { GarmentCard } from "@/components/garment-card";
 import type { Rack, Garment } from "@shared/schema";
 
@@ -44,6 +51,122 @@ export default function RackDetailPage() {
 
   const rack = data;
   const garments = data.garments || [];
+
+  const [moveOpen, setMoveOpen] = useState(false);
+  const [toRackId, setToRackId] = useState<string>("");
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [isMoving, setIsMoving] = useState(false);
+  const [isPrinting, setIsPrinting] = useState(false);
+
+  const { data: allRacks } = useQuery<Rack[]>({
+    queryKey: ["/api/racks"],
+    enabled: moveOpen,
+  });
+
+  const destinationRacks = useMemo(() => {
+    return (allRacks || []).filter((r) => r.id !== rack.id);
+  }, [allRacks, rack.id]);
+
+  const selectedCount = useMemo(() => selectedIds.size, [selectedIds]);
+  const allSelected = useMemo(() => garments.length > 0 && selectedIds.size === garments.length, [selectedIds, garments.length]);
+
+  const toggleAll = (checked: boolean) => {
+    if (checked) setSelectedIds(new Set(garments.map((g) => g.id)));
+    else setSelectedIds(new Set());
+  };
+
+  const toggleOne = (id: string, checked: boolean) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const handlePrintQr = async () => {
+    setIsPrinting(true);
+    try {
+      const resp = await apiRequest("GET", `/api/racks/by-code/${encodeURIComponent(rack.code)}/qr`);
+      const w = window.open("", "_blank", "noopener,noreferrer");
+      if (!w) {
+        toast({ title: "Print blocked", description: "Allow popups to print the QR code.", variant: "destructive" });
+        return;
+      }
+
+      w.document.write(`<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Print Rack QR</title>
+  <style>
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 24px; }
+    .wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+    img { width: 320px; height: 320px; }
+    .code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
+    @media print { button { display: none; } }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h2>Rack QR Code</h2>
+    <div class="code">${resp.code}</div>
+    <img src="${resp.qrUrl}" alt="Rack QR" />
+    <div style="font-size:12px; color:#666; text-align:center;">${resp.rackUrl}</div>
+    <button onclick="window.print()">Print</button>
+  </div>
+</body>
+</html>`);
+      w.document.close();
+      w.focus();
+      setTimeout(() => w.print(), 250);
+
+      // refresh rack query so qrUrl displayed in UI becomes correct
+      queryClient.invalidateQueries({ predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/racks/by-code" });
+    } catch (e: any) {
+      toast({ title: "Print failed", description: e?.message || String(e), variant: "destructive" });
+    } finally {
+      setIsPrinting(false);
+    }
+  };
+
+  const handleOpenMove = (open: boolean) => {
+    setMoveOpen(open);
+    if (open) {
+      setToRackId("");
+      setSelectedIds(new Set(garments.map((g) => g.id))); // default: all
+    }
+  };
+
+  const handleMove = async () => {
+    if (!toRackId) {
+      toast({ title: "Select destination rack", variant: "destructive" });
+      return;
+    }
+    if (selectedIds.size === 0) {
+      toast({ title: "Select at least 1 garment", variant: "destructive" });
+      return;
+    }
+
+    setIsMoving(true);
+    try {
+      const ids = Array.from(selectedIds);
+      const payload: any = { toRackId };
+      if (ids.length !== garments.length) payload.garmentIds = ids;
+
+      const resp = await apiRequest("POST", `/api/racks/${rack.id}/move-garments`, payload);
+
+      toast({ title: "Moved", description: `Moved ${resp.movedCount} garment(s).` });
+      handleOpenMove(false);
+
+      // refresh current rack view + lists
+      queryClient.invalidateQueries();
+    } catch (e: any) {
+      toast({ title: "Move failed", description: e?.message || String(e), variant: "destructive" });
+    } finally {
+      setIsMoving(false);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -155,11 +278,11 @@ export default function RackDetailPage() {
               <CardTitle>Quick Actions</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              <Button className="w-full" variant="outline" data-testid="button-print-qr">
+              <Button className="w-full" variant="outline" data-testid="button-print-qr" onClick={handlePrintQr} disabled={isPrinting}>
                 <QrCodeIcon className="h-4 w-4 mr-2" />
-                Print QR Code
+                {isPrinting ? "Preparing print…" : "Print QR Code"}
               </Button>
-              <Button className="w-full" variant="outline" data-testid="button-move-all">
+              <Button className="w-full" variant="outline" data-testid="button-move-all" onClick={() => handleOpenMove(true)} disabled={garments.length === 0}>
                 <Package className="h-4 w-4 mr-2" />
                 Move All Garments
               </Button>
@@ -167,6 +290,77 @@ export default function RackDetailPage() {
           </Card>
         </div>
       </div>
-    </div>
+    
+      <Dialog open={moveOpen} onOpenChange={handleOpenMove}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Move garments</DialogTitle>
+            <DialogDescription>
+              From rack <span className="font-mono">{rack.code}</span>. Select destination and what to move.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <div className="text-sm font-medium">Destination rack</div>
+              <Select value={toRackId} onValueChange={setToRackId}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Select a rack…" />
+                </SelectTrigger>
+                <SelectContent>
+                  {destinationRacks.map((r) => (
+                    <SelectItem key={r.id} value={r.id}>
+                      {r.code} — {r.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  checked={allSelected}
+                  onCheckedChange={(v) => toggleAll(v === true)}
+                />
+                <span className="text-sm">Select all</span>
+              </div>
+              <div className="text-sm text-muted-foreground">
+                Selected: {selectedCount}/{garments.length}
+              </div>
+            </div>
+
+            <ScrollArea className="h-56 rounded-md border p-3">
+              <div className="space-y-2">
+                {garments.map((g) => (
+                  <div key={g.id} className="flex items-center gap-3">
+                    <Checkbox
+                      checked={selectedIds.has(g.id)}
+                      onCheckedChange={(v) => toggleOne(g.id, v === true)}
+                    />
+                    <div className="min-w-0">
+                      <div className="font-mono text-sm truncate">{g.code}</div>
+                      <div className="text-xs text-muted-foreground truncate">
+                        {g.size} • {g.color} • {g.gender}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </ScrollArea>
+          </div>
+
+          <DialogFooter>
+            <Button variant="outline" onClick={() => handleOpenMove(false)} disabled={isMoving}>
+              Cancel
+            </Button>
+            <Button onClick={handleMove} disabled={isMoving || !toRackId || selectedIds.size === 0}>
+              {isMoving ? "Moving…" : "Move"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+</div>
   );
 }

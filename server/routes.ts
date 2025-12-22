@@ -821,7 +821,31 @@ if (!gcsBucket) {
     }
   });
 
-  app.get("/api/racks/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  
+  app.get("/api/racks/by-code/:code/qr", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rack = await storage.getRackByCode(req.params.code);
+      if (!rack) {
+        return res.status(404).json({ statusCode: 404, message: "Rack not found", timestamp: new Date().toISOString() });
+      }
+
+      const proto = req.get("x-forwarded-proto") || req.protocol;
+      const baseUrl = `${proto}://${req.get("host")}`;
+      const rackUrl = `${baseUrl}/rack/${encodeURIComponent(rack.code)}`;
+      const qrUrl = await generateQRCode(rackUrl);
+
+      // Persist refreshed QR so UI shows the correct one
+      if (rack.qrUrl !== qrUrl) {
+        await storage.updateRack(rack.id, { qrUrl });
+      }
+
+      res.json({ rackId: rack.id, code: rack.code, rackUrl, qrUrl });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+app.get("/api/racks/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const rack = await storage.getRack(req.params.id);
       if (!rack) {
@@ -845,19 +869,81 @@ if (!gcsBucket) {
     }
   });
 
-  app.post("/api/racks", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  
+  app.post("/api/racks/:id/move-garments", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user || (req.user.role !== "ADMIN" && req.user.role !== "CURATOR")) {
+        return res.status(403).json({ statusCode: 403, message: "Forbidden", timestamp: new Date().toISOString() });
+      }
+
+      const fromRackId = req.params.id;
+      const { toRackId, garmentIds, note } = req.body ?? {};
+
+      if (!toRackId) {
+        return res.status(400).json({ statusCode: 400, message: "toRackId is required", timestamp: new Date().toISOString() });
+      }
+      if (toRackId === fromRackId) {
+        return res.status(400).json({ statusCode: 400, message: "Destination rack must be different", timestamp: new Date().toISOString() });
+      }
+
+      const [fromRack, toRack] = await Promise.all([
+        storage.getRack(fromRackId),
+        storage.getRack(toRackId),
+      ]);
+
+      if (!fromRack) {
+        return res.status(404).json({ statusCode: 404, message: "Source rack not found", timestamp: new Date().toISOString() });
+      }
+      if (!toRack) {
+        return res.status(404).json({ statusCode: 404, message: "Destination rack not found", timestamp: new Date().toISOString() });
+      }
+
+      let garments = await storage.getGarmentsByRack(fromRackId);
+
+      if (Array.isArray(garmentIds) && garmentIds.length > 0) {
+        const setIds = new Set(garmentIds);
+        garments = garments.filter((g) => setIds.has(g.id));
+      }
+
+      const moved = [];
+      for (const g of garments) {
+        const result = await storage.moveGarment(
+          g.id,
+          toRackId,
+          g.status, // keep same status
+          req.user.id,
+          note || `Moved from rack ${fromRack.code} to ${toRack.code}`
+        );
+        moved.push(result.garment.id);
+      }
+
+      res.json({
+        fromRackId,
+        toRackId,
+        movedCount: moved.length,
+        garmentIds: moved,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+app.post("/api/racks", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { code, name, zone } = req.body;
 
-      // Generate QR code for rack
-      const baseUrl = process.env.REPLIT_DEV_DOMAIN
-        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-        : "http://localhost:5000";
-      const rackUrl = `${baseUrl}/rack/${code}`;
-      const qrUrl = await generateQRCode(rackUrl);
+      const codeNormalized = String(code ?? "").trim();
+      if (!codeNormalized) {
+        return res.status(400).json({ statusCode: 400, message: "code is required", timestamp: new Date().toISOString() });
+      }
 
-      const rack = await storage.createRack({
-        code,
+      // Generate QR code for rack (use real host in Cloud Run)
+      const proto = req.get("x-forwarded-proto") || req.protocol;
+      const baseUrl = `${proto}://${req.get("host")}`;
+      const rackUrl = `${baseUrl}/rack/${encodeURIComponent(codeNormalized)}`;
+      const qrUrl = await generateQRCode(rackUrl);
+const rack = await storage.createRack({
+        code: codeNormalized,
         name,
         zone,
         qrUrl,

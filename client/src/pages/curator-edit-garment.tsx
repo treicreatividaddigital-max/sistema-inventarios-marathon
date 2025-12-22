@@ -240,103 +240,14 @@ export default function CuratorEditGarmentPage() {
   };
 
   const handleCameraCapture = async () => {
-    const hasGetUserMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
-
-    if (!hasGetUserMedia) {
-      triggerNativeCameraCapture();
-      return;
-    }
-
-    let stream: MediaStream | null = null;
-    let video: HTMLVideoElement | null = null;
-
-    const timeout = (ms: number, message: string) =>
-      new Promise<never>((_, reject) => setTimeout(() => reject(new Error(message)), ms));
-
-    const waitForVideoReady = async (v: HTMLVideoElement, ms: number) => {
-      const start = Date.now();
-      while (true) {
-        if (v.readyState >= 2 && v.videoWidth > 0 && v.videoHeight > 0) return;
-        if (Date.now() - start > ms) throw new Error("Camera warmup timeout");
-        await new Promise<void>((resolve) => requestAnimationFrame(() => resolve()));
-      }
-    };
-
     try {
       setIsCapturingPhoto(true);
-
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: { ideal: "environment" } },
-        audio: false,
-      });
-
-      video = document.createElement("video");
-      video.srcObject = stream;
-      video.playsInline = true;
-      video.muted = true;
-      video.autoplay = true;
-      video.setAttribute("playsinline", "true");
-      video.setAttribute("muted", "true");
-
-      video.style.position = "fixed";
-      video.style.left = "-9999px";
-      video.style.top = "0";
-      video.style.width = "1px";
-      video.style.height = "1px";
-      document.body.appendChild(video);
-
-      await Promise.race([video.play(), timeout(4000, "Camera playback blocked")]);
-      await waitForVideoReady(video, 4000);
-
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-
-      const ctx = canvas.getContext("2d");
-      if (!ctx) throw new Error("Canvas not supported");
-      ctx.drawImage(video, 0, 0);
-
-      const blob: Blob = await new Promise((resolve, reject) => {
-        canvas.toBlob(
-          (b) => (b ? resolve(b) : reject(new Error("Could not encode image"))),
-          "image/jpeg",
-          0.85
-        );
-      });
-
-      const previewUrl = URL.createObjectURL(blob);
-      setPhotoPreview(previewUrl);
-
-      const file = new File([blob], `capture-${Date.now()}.jpg`, {
-        type: blob.type || "image/jpeg",
-      });
-      setPhotoFile(file);
-      form.setValue("photoUrl", "");
-
-      toast({
-        title: "Photo captured",
-        description: "Photo has been captured successfully",
-      });
-    } catch (error: any) {
-      if (cameraInputRef.current) {
-        triggerNativeCameraCapture();
-        toast({
-          title: "Using phone camera",
-          description: "If the in-app camera failed, we'll use your phone camera instead.",
-        });
-      } else {
-        toast({
-          title: "Camera error",
-          description: error?.message || "Could not access camera",
-          variant: "destructive",
-        });
-      }
+      triggerNativeCameraCapture();
     } finally {
-      if (stream) stream.getTracks().forEach((track) => track.stop());
-      if (video && video.parentNode) video.parentNode.removeChild(video);
       setIsCapturingPhoto(false);
     }
   };
+
 
   const handleRemovePhoto = () => {
     if (photoPreview?.startsWith("blob:")) {

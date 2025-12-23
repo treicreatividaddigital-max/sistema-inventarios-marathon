@@ -1135,6 +1135,31 @@ const rack = await storage.createRack({
     }
   });
 
+  
+  app.get("/api/garments/by-code/:code/qr", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const garment = await storage.getGarmentByCode(req.params.code);
+      if (!garment) {
+        return res.status(404).json({ statusCode: 404, message: "Garment not found", timestamp: new Date().toISOString() });
+      }
+
+      const proto = req.get("x-forwarded-proto") || req.protocol;
+      const baseUrl = `${proto}://${req.get("host")}`;
+      const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(garment.code)}`;
+      const qrUrl = await generateQRCode(garmentUrl);
+
+      // Persistir QR correcto si estaba con dominio viejo/localhost
+      if (garment.qrUrl !== qrUrl) {
+        await storage.updateGarment(garment.id, { qrUrl });
+      }
+
+      res.json({ garmentId: garment.id, code: garment.code, garmentUrl, qrUrl });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+
   app.get("/api/garments/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const garment = await storage.getGarment(req.params.id);
@@ -1174,10 +1199,9 @@ const rack = await storage.createRack({
         const { code, size, color, gender, status, categoryId, garmentTypeId, collectionId, lotId, rackId, photoUrl: bodyPhotoUrl } = req.body;
 
         // Generate QR code for garment
-        const baseUrl = process.env.REPLIT_DEV_DOMAIN
-          ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-          : "http://localhost:5000";
-        const garmentUrl = `${baseUrl}/garment/${code}`;
+        const proto = req.get("x-forwarded-proto") || req.protocol;
+        const baseUrl = `${proto}://${req.get("host")}`;
+        const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(code)}`;
         const qrUrl = await generateQRCode(garmentUrl);
 
         // Determine photo URL: from uploaded file or from JSON body

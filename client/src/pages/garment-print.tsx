@@ -82,12 +82,12 @@ export default function GarmentPrintPage() {
               ) : error || !data?.qrUrl ? (
                 <div className="text-sm text-destructive">Could not load QR.</div>
               ) : (
-                <img
+                <div className="qr-box"><img
                   ref={imgRef}
                   src={data.qrUrl}
                   alt={`QR Code for ${data.code}`}
-                  className="w-72 h-72"
-                />
+                  className="qr-img w-72 h-72"
+                /></div>
               )}
             </CardContent>
           </Card>

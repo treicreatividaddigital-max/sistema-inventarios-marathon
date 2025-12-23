@@ -44,7 +44,12 @@ export default function GarmentDetailPage() {
     enabled: !!garmentCode,
   });
 
-  if (isLoading) {
+  
+  const { data: garmentQr } = useQuery<{ garmentId: string; code: string; garmentUrl: string; qrUrl: string }>({
+    queryKey: ["/api/garments/by-code", garmentCode, "qr"],
+    enabled: !!garmentCode,
+  });
+if (isLoading) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="text-lg text-muted-foreground">Loading...</div>
@@ -290,7 +295,7 @@ export default function GarmentDetailPage() {
             <CardContent className="flex flex-col items-center">
               {garment.qrUrl ? (
                 <img
-                  src={garment.qrUrl}
+                  src={garmentQr?.qrUrl || garment.qrUrl}
                   alt={`QR Code for ${garment.code}`}
                   className="w-64 h-64"
                 />

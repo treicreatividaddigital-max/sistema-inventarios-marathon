@@ -16,12 +16,13 @@ export default function RackPrintPage() {
   const [, params] = useRoute("/rack/:code/print");
   const rackCode = params?.code ? decodeURIComponent(params.code) : "";
 
-  const { data, isLoading, error } = useQuery<QrResp>({
-    queryKey: ["/api/racks/by-code", rackCode, "qr"],
-    enabled: !!rackCode,
-  });
+  const qrEndpoint = rackCode ? `/api/racks/by-code/${encodeURIComponent(rackCode)}/qr` : "";
 
-  const imgRef = useRef<HTMLImageElement | null>(null);
+  const { data, isLoading, error } = useQuery<QrResp>({
+    queryKey: [qrEndpoint],
+    enabled: !!qrEndpoint,
+  });
+const imgRef = useRef<HTMLImageElement | null>(null);
 
   useEffect(() => {
     if (!data?.qrUrl) return;

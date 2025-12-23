@@ -27,9 +27,18 @@ export default function CuratorScanPage() {
     processingRef.current = false;
   };
 
-  const isValidCode = (code: string): boolean => {
-    return code.length > 0 && code.length <= 100 && /^[a-zA-Z0-9\-_]+$/.test(code);
-  };
+  const isValidRackCode = (code: string): boolean => {
+  const c = (code || "").trim();
+  return c.length > 0 && c.length <= 100 && /^[a-zA-Z0-9\-_]+$/.test(c);
+};
+
+// Garment codes in this app may contain spaces (e.g., "Prueba en Prod 1").
+// Accept any non-empty code that can safely be used as a single path segment.
+const isValidGarmentCode = (code: string): boolean => {
+  const c = (code || "").trim();
+  return c.length > 0 && c.length <= 100 && !c.includes("/") && !c.includes("\\");
+};
+
 
   const handleScan = (detectedCodes: IDetectedBarcode[]) => {
     if (!detectedCodes || detectedCodes.length === 0 || processingRef.current) {
@@ -55,8 +64,9 @@ export default function CuratorScanPage() {
     }
 
     if (pathname.startsWith("/garment/")) {
-      const garmentCode = pathname.split("/garment/")[1]?.split("/")[0];
-      if (!garmentCode || !isValidCode(garmentCode)) {
+      const garmentCodeEncoded = pathname.split("/garment/")[1]?.split("/")[0];
+      const garmentCode = garmentCodeEncoded ? decodeURIComponent(garmentCodeEncoded).trim() : "";
+      if (!garmentCode || !isValidGarmentCode(garmentCode)) {
         setError("Invalid garment QR code: code format is incorrect.");
         setIsScanning(false);
         processingRef.current = false;
@@ -68,12 +78,13 @@ export default function CuratorScanPage() {
       setTimeout(() => {
         setIsScanning(false);
         setTimeout(() => {
-          setLocation(`/garment/${garmentCode}`);
+          setLocation(`/garment/${encodeURIComponent(garmentCode)}`);
         }, 50);
       }, 50);
     } else if (pathname.startsWith("/rack/")) {
-      const rackCode = pathname.split("/rack/")[1]?.split("/")[0];
-      if (!rackCode || !isValidCode(rackCode)) {
+      const rackCodeEncoded = pathname.split("/rack/")[1]?.split("/")[0];
+      const rackCode = rackCodeEncoded ? decodeURIComponent(rackCodeEncoded).trim() : "";
+      if (!rackCode || !isValidRackCode(rackCode)) {
         setError("Invalid rack QR code: code format is incorrect.");
         setIsScanning(false);
         processingRef.current = false;
@@ -85,7 +96,7 @@ export default function CuratorScanPage() {
       setTimeout(() => {
         setIsScanning(false);
         setTimeout(() => {
-          setLocation(`/rack/${rackCode}`);
+          setLocation(`/rack/${encodeURIComponent(rackCode)}`);
         }, 50);
       }, 50);
     } else {

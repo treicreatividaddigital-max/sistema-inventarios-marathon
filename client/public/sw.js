@@ -1,14 +1,7 @@
 /* eslint-disable no-undef */
-const CACHE_NAME = "ms-inv-cache-v5";
+const CACHE_NAME = "ms-inv-cache-v6";
+const APP_SHELL = ["/", "/index.html", "/manifest.json"];
 
-// Archivos mínimos (offline-ish). NO metemos /api aquí.
-const APP_SHELL = [
-  "/",
-  "/index.html",
-  "/manifest.json",
-];
-
-// Instala y toma control ASAP
 self.addEventListener("install", (event) => {
   self.skipWaiting();
   event.waitUntil(
@@ -29,11 +22,8 @@ self.addEventListener("activate", (event) => {
   );
 });
 
-// Permite forzar activación desde el cliente
 self.addEventListener("message", (event) => {
-  if (event?.data?.type === "SKIP_WAITING") {
-    self.skipWaiting();
-  }
+  if (event?.data?.type === "SKIP_WAITING") self.skipWaiting();
 });
 
 self.addEventListener("fetch", (event) => {
@@ -41,16 +31,14 @@ self.addEventListener("fetch", (event) => {
   if (req.method !== "GET") return;
 
   const url = new URL(req.url);
-
-  // Solo cachea mismo origen
   if (url.origin !== self.location.origin) return;
 
-  // JAMÁS cachear API
+  // NEVER cache API
   if (url.pathname.startsWith("/api/")) return;
 
   const accept = req.headers.get("accept") || "";
 
-  // HTML / navegación: NETWORK-FIRST (evita HTML viejo apuntando a bundles viejos)
+  // HTML/navigation: network-first (prevents stale index.html -> white screen)
   if (req.mode === "navigate" || accept.includes("text/html")) {
     event.respondWith(
       (async () => {
@@ -59,7 +47,7 @@ self.addEventListener("fetch", (event) => {
           const cache = await caches.open(CACHE_NAME);
           cache.put("/index.html", fresh.clone());
           return fresh;
-        } catch (e) {
+        } catch {
           const cache = await caches.open(CACHE_NAME);
           const cached = await cache.match("/index.html");
           return cached || Response.error();
@@ -69,20 +57,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
-  // Assets: CACHE-FIRST (rápido), con fallback a red
+  // Assets: cache-first
   event.respondWith(
     (async () => {
       const cache = await caches.open(CACHE_NAME);
       const cached = await cache.match(req);
       if (cached) return cached;
 
-      try {
-        const fresh = await fetch(req);
-        cache.put(req, fresh.clone());
-        return fresh;
-      } catch (e) {
-        return Response.error();
-      }
+      const fresh = await fetch(req);
+      cache.put(req, fresh.clone());
+      return fresh;
     })()
   );
 });

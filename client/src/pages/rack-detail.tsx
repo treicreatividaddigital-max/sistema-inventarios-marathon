@@ -71,73 +71,11 @@ export default function RackDetailPage() {
     });
   };
 
-  const handlePrintQr = async () => {
+  const handlePrintQr = () => {
     const rackCode = data?.code;
     if (!rackCode) return;
-
-    // Open popup FIRST (must be inside user gesture, before any await)
-    const w = window.open("", "_blank", "noopener,noreferrer");
-    if (!w) {
-      toast({
-        title: "Print blocked",
-        description: "Allow popups for this site to print the QR code.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Minimal loading UI
-    w.document.write(`<!doctype html>
-<html><head><meta charset="utf-8" /><title>Preparing…</title></head>
-<body style="font-family: system-ui; padding: 24px;">
-  <h3>Preparing QR…</h3>
-  <p>You can close this tab if it doesn’t load.</p>
-</body></html>`);
-    w.document.close();
-
-    setIsPrinting(true);
-    try {
-      const resp = await apiRequest("GET", `/api/racks/by-code/${encodeURIComponent(rackCode)}/qr`);
-
-      w.document.open();
-      w.document.write(`<!doctype html>
-<html>
-<head>
-  <meta charset="utf-8" />
-  <title>Print Rack QR</title>
-  <style>
-    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; padding: 24px; }
-    .wrap { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-    img { width: 320px; height: 320px; }
-    .code { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace; }
-    @media print { button { display: none; } }
-  </style>
-</head>
-<body>
-  <div class="wrap">
-    <h2>Rack QR Code</h2>
-    <div class="code">${resp.code}</div>
-    <img src="${resp.qrUrl}" alt="Rack QR" />
-    <div style="font-size:12px; color:#666; text-align:center;">${resp.rackUrl}</div>
-    <button onclick="window.print()">Print</button>
-  </div>
-</body>
-</html>`);
-      w.document.close();
-      w.focus();
-      setTimeout(() => w.print(), 250);
-
-      queryClient.invalidateQueries();
-    } catch (e: any) {
-      try {
-        w.document.open();
-        w.document.write(`<pre style="font-family: ui-monospace; padding: 16px;">Print failed: ${String(e?.message || e)}</pre>`);
-        w.document.close();
-      } catch {}
-      toast({ title: "Print failed", description: e?.message || String(e), variant: "destructive" });
-    } finally {
-      setIsPrinting(false);
-    }
+    // No popups: abrir pantalla de impresión en la misma pestaña
+    window.location.href = `/rack/${encodeURIComponent(rackCode)}/print`;
   };
 
   const handleOpenMove = (open: boolean) => {

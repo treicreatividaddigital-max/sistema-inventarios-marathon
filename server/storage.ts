@@ -1,6 +1,6 @@
 // Reference: javascript_database integration blueprint
 import { db } from "./db";
-import { eq, and, or, like, sql } from "drizzle-orm";
+import { eq, and, or, like, sql, desc } from "drizzle-orm";
 import {
   users,
   categories,
@@ -373,7 +373,7 @@ export class DatabaseStorage implements IStorage {
 
   // Movements
   async getMovementsByGarment(garmentId: string): Promise<Movement[]> {
-    return await db.select().from(movements).where(eq(movements.garmentId, garmentId)).orderBy(movements.movedAt);
+    return await db.select().from(movements).where(eq(movements.garmentId, garmentId)).orderBy(desc(movements.movedAt));
   }
 
   async createMovement(movement: InsertMovement): Promise<Movement> {

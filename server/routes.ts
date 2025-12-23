@@ -44,6 +44,41 @@ async function hydrateGarmentList(garments: any[]) {
   );
 }
 
+
+// Hydrate movements for garment details (avoid "Added to undefined" and hide sensitive fields)
+async function hydrateMovementsList(movements: any[]) {
+  const rackCache = new Map<string, any | null>();
+  const userCache = new Map<string, any | null>();
+
+  const getCached = async (
+    cache: Map<string, any | null>,
+    id: string | null | undefined,
+    getter: (id: string) => Promise<any | undefined>
+  ) => {
+    if (!id) return null;
+    if (cache.has(id)) return cache.get(id)!;
+    const v = (await getter(id)) ?? null;
+    cache.set(id, v);
+    return v;
+  };
+
+  const getUserSafe = async (id: string | null | undefined) => {
+    const u = await getCached(userCache, id, storage.getUser.bind(storage));
+    if (!u) return null;
+    // IMPORTANT: never send password hashes to client
+    return { id: u.id, email: u.email, role: u.role };
+  };
+
+  return await Promise.all(
+    movements.map(async (m) => ({
+      ...m,
+      fromRack: await getCached(rackCache, m.fromRackId, storage.getRack.bind(storage)),
+      toRack: await getCached(rackCache, m.toRackId, storage.getRack.bind(storage)),
+      movedBy: await getUserSafe(m.movedById),
+    }))
+  );
+}
+
 // JWT Secret and bcrypt configuration from environment
 const JWT_SECRET_ENV = process.env.JWT_SECRET;
 if (!JWT_SECRET_ENV) {
@@ -1093,7 +1128,7 @@ const rack = await storage.createRack({
         collection,
         lot,
         rack,
-        movements,
+        movements: await hydrateMovementsList(movements),
       });
     } catch (error) {
       next(error);
@@ -1116,7 +1151,7 @@ const rack = await storage.createRack({
 
       res.json({
         ...garment,
-        movements,
+        movements: await hydrateMovementsList(movements),
       });
     } catch (error) {
       next(error);

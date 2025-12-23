@@ -1,5 +1,5 @@
 import { useRoute } from "wouter";
-import { ArrowLeft, Download, MapPin, Package, QrCode as QrCodeIcon } from "lucide-react";
+import { ArrowLeft, MapPin, Package, QrCode as QrCodeIcon , Printer } from "lucide-react";
 import { Link } from "wouter";
 import { useQuery } from "@tanstack/react-query";
 import { Button } from "@/components/ui/button";
@@ -76,12 +76,7 @@ export default function GarmentDetailPage() {
           <p className="text-muted-foreground mt-1 font-mono text-sm">
             {garment.code}
           </p>
-        </div>
-        <Button variant="outline" data-testid="button-download-qr">
-          <Download className="h-4 w-4 mr-2" />
-          Download QR
-        </Button>
-      </div>
+        </div></div>
 
       <div className="grid gap-6 lg:grid-cols-3">
         <div className="lg:col-span-2 space-y-6">
@@ -276,8 +271,21 @@ export default function GarmentDetailPage() {
 
           <Card>
             <CardHeader>
-              <CardTitle>Garment QR Code</CardTitle>
-              <CardDescription>Scan to view garment details</CardDescription>
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <CardTitle>Garment QR Code</CardTitle>
+                  <CardDescription>Scan to view garment details</CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => (window.location.href = `/garment/${encodeURIComponent(garment.code)}/print`)}
+                  data-testid="button-print-garment-qr"
+                >
+                  <Printer className="h-4 w-4 mr-2" />
+                  Print
+                </Button>
+              </div>
             </CardHeader>
             <CardContent className="flex flex-col items-center">
               {garment.qrUrl ? (
@@ -300,8 +308,21 @@ export default function GarmentDetailPage() {
           {garment.rack && (
             <Card>
               <CardHeader>
-                <CardTitle>Rack QR Code</CardTitle>
-                <CardDescription>Scan to view rack location</CardDescription>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <CardTitle>Rack QR Code</CardTitle>
+                    <CardDescription>Scan to view rack location</CardDescription>
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => { const code = garment.rack?.code; if (!code) return; window.location.href = `/rack/${encodeURIComponent(code)}/print`; }}
+                    data-testid="button-print-rack-qr"
+                  >
+                    <Printer className="h-4 w-4 mr-2" />
+                    Print
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="flex flex-col items-center">
                 {garment.rack.qrUrl ? (

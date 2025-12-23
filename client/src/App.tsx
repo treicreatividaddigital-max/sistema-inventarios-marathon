@@ -15,6 +15,7 @@ import CuratorPage from "@/pages/curator";
 import DashboardPage from "@/pages/dashboard";
 import SearchPage from "@/pages/search";
 import GarmentDetailPage from "@/pages/garment-detail";
+import GarmentPrintPage from "@/pages/garment-print";
 import RackDetailPage from "@/pages/rack-detail";
 import RackPrintPage from "@/pages/rack-print";
 import CuratorScanPage from "@/pages/curator-scan";
@@ -36,6 +37,7 @@ function AuthenticatedRoutes() {
       <Route path="/curator" component={CuratorPage} />
       <Route path="/dashboard" component={DashboardPage} />
       <Route path="/search" component={SearchPage} />
+      <Route path="/garment/:code/print" component={GarmentPrintPage} />
       <Route path="/garment/:code" component={GarmentDetailPage} />
       <Route path="/rack/:code/print" component={RackPrintPage} />
       <Route path="/rack/:code" component={RackDetailPage} />

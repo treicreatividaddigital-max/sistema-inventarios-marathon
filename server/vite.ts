@@ -67,10 +67,30 @@ export function serveStatic(app: Express) {
     throw new Error(`Could not find the build directory: ${distPath}`);
   }
 
-  app.use(express.static(distPath));
+  // Evita "stale SW / stale index.html" (pantalla blanca tras deploys)
+  app.use(
+    express.static(distPath, {
+      setHeaders: (res, filePath) => {
+        const base = path.basename(filePath);
+
+        // Nunca cachear agresivamente el app-shell y el SW
+        if (base === "sw.js" || base === "manifest.json" || base === "index.html") {
+          res.setHeader("Cache-Control", "no-store, max-age=0, must-revalidate");
+          return;
+        }
+
+        // Assets con hash de Vite: cache largo
+        if (filePath.includes(`${path.sep}assets${path.sep}`)) {
+          res.setHeader("Cache-Control", "public, max-age=31536000, immutable");
+          return;
+        }
+      },
+    }),
+  );
 
   // SPA fallback
   app.use("*", (_req, res) => {
+    res.setHeader("Cache-Control", "no-store, max-age=0, must-revalidate");
     res.sendFile(path.resolve(distPath, "index.html"));
   });
 }

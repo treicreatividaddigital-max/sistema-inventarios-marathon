@@ -1,7 +1,7 @@
 {
   "project_meta": {
-    "name": "Smart Garment Inventory",
-    "description": "Sistema completo de inventario para fábrica de ropa deportiva con QR y PWA.",
+    "name": "archive - Marathon Sports Inventory System",
+    "description": "Marathon Sports Inventory System.",
     "context": "Fullstack App: NestJS Backend + Next.js Frontend (PWA).",
     "instruction_mode": "SEQUENTIAL_BUILD"
   },

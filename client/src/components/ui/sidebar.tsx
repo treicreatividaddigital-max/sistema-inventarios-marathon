@@ -1,6 +1,7 @@
 "use client"
 
 import * as React from "react"
+import { useLocation } from "wouter"
 import { Slot } from "@radix-ui/react-slot"
 import { cva, VariantProps } from "class-variance-authority"
 import { PanelLeftIcon } from "lucide-react"
@@ -68,6 +69,15 @@ function SidebarProvider({
 }) {
   const isMobile = useIsMobile()
   const [openMobile, setOpenMobile] = React.useState(false)
+
+  const [location] = useLocation();
+
+  // Close mobile sidebar when navigating (UX)
+  React.useEffect(() => {
+    if (!isMobile) return;
+    setOpenMobile(false);
+  }, [location, isMobile]);
+
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.

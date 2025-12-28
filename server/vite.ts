@@ -67,10 +67,62 @@ export function serveStatic(app: Express) {
     throw new Error(`Could not find the build directory: ${distPath}`);
   }
 
-  app.use(express.static(distPath));
+  const NO_STORE = "no-store, max-age=0, must-revalidate";
 
-  // SPA fallback
+  const setNoStore = (res: any, tag: string) => {
+    res.setHeader("Cache-Control", NO_STORE);
+    // Header de diagnóstico para confirmar en curl que este código corre
+    res.setHeader("X-MSINV-Cache", tag);
+  };
+
+  const indexPath = path.resolve(distPath, "index.html");
+  const swPath = path.resolve(distPath, "sw.js");
+  const manifestPath = path.resolve(distPath, "manifest.json");
+
+  // Pre-cargamos index para evitar que sendFile/serve-static reescriban Cache-Control
+  const indexHtml = fs.readFileSync(indexPath, "utf-8");
+
+  // App shell + SW: SIEMPRE no-store
+  app.get("/sw.js", (_req, res) => {
+    setNoStore(res, "sw-nostore");
+    res.type("application/javascript").send(fs.readFileSync(swPath, "utf-8"));
+  });
+
+  app.get("/manifest.json", (_req, res) => {
+    setNoStore(res, "manifest-nostore");
+    res.type("application/json").send(fs.readFileSync(manifestPath, "utf-8"));
+  });
+
+  app.get("/index.html", (_req, res) => {
+    setNoStore(res, "index-nostore");
+    res.type("text/html").send(indexHtml);
+  });
+
+  // Hashed assets: cache largo
+  const assetsPath = path.resolve(distPath, "assets");
+  if (fs.existsSync(assetsPath)) {
+    app.use(
+      "/assets",
+      express.static(assetsPath, {
+        maxAge: "1y",
+        immutable: true,
+      }),
+    );
+  }
+
+  // Otros estáticos (íconos, etc.) sin Cache-Control automático (seguro)
+  app.use(
+    express.static(distPath, {
+      cacheControl: false,
+      setHeaders: (res) => {
+        res.setHeader("X-MSINV-Cache", "static-nocache");
+      },
+    }),
+  );
+
+  // SPA fallback: siempre index fresco
   app.use("*", (_req, res) => {
-    res.sendFile(path.resolve(distPath, "index.html"));
+    setNoStore(res, "spa-fallback");
+    res.type("text/html").send(indexHtml);
   });
 }

@@ -1,9 +1,9 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertGarmentSchema, type InsertGarment, type Category, type GarmentType, type Collection, type Lot, type Rack } from "@shared/schema";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, invalidateGarmentQueries } from "@/lib/queryClient";
 import { z } from "zod";
 import { ArrowLeft, ArrowRight, Check, Loader2, Upload, Camera } from "lucide-react";
 import { useLocation } from "wouter";
@@ -63,6 +63,8 @@ export default function CuratorNewGarmentPage() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const triggerNativeCameraCapture = () => cameraInputRef.current?.click();
   const { toast } = useToast();
   const [, navigate] = useLocation();
 
@@ -144,7 +146,7 @@ export default function CuratorNewGarmentPage() {
         title: "Garment created successfully",
         description: "The garment has been added to inventory",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/garments"] });
+      invalidateGarmentQueries();
       navigate("/curator");
     },
     onError: (error: any) => {
@@ -183,6 +185,11 @@ export default function CuratorNewGarmentPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Evitar fugas de memoria si el preview anterior era un blob: URL
+    if (photoPreview?.startsWith("blob:")) {
+      URL.revokeObjectURL(photoPreview);
+    }
+
     // Guardamos el archivo real para enviarlo al backend
     setPhotoFile(file);
 
@@ -197,59 +204,14 @@ export default function CuratorNewGarmentPage() {
   };
 
   const handleCameraCapture = async () => {
-    let stream: MediaStream | null = null;
-    
     try {
       setIsCapturingPhoto(true);
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-
-      const video = document.createElement("video");
-      video.srcObject = stream;
-      await video.play();
-
-      await new Promise((resolve) => {
-        video.onloadedmetadata = resolve;
-      });
-
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      ctx?.drawImage(video, 0, 0);
-
-      // DataURL solo para preview
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-      setPhotoPreview(dataUrl);
-
-      // Convertimos el dataUrl en Blob y luego en File
-      const response = await fetch(dataUrl);
-      const blob = await response.blob();
-      const file = new File([blob], `capture-${Date.now()}.jpg`, {
-        type: blob.type || "image/jpeg",
-      });
-      setPhotoFile(file);
-      form.setValue("photoUrl", "");
-
-      toast({
-        title: "Photo captured",
-        description: "Photo has been captured successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Camera error",
-        description: error?.message || "Could not access camera",
-        variant: "destructive",
-      });
+      triggerNativeCameraCapture();
     } finally {
-      // Siempre detenemos el stream, incluso si ocurrió un error
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
       setIsCapturingPhoto(false);
     }
   };
+
 
   return (
     <div className="space-y-6 max-w-3xl mx-auto p-6">
@@ -656,6 +618,9 @@ export default function CuratorNewGarmentPage() {
                                   size="sm"
                                   className="absolute top-2 right-2"
                                   onClick={() => {
+                                    if (photoPreview?.startsWith("blob:")) {
+                                      URL.revokeObjectURL(photoPreview);
+                                    }
                                     setPhotoPreview(null);
                                     setPhotoFile(null);
                                     form.setValue("photoUrl", undefined);
@@ -685,6 +650,15 @@ export default function CuratorNewGarmentPage() {
                                     data-testid="input-photo"
                                   />
                                 </label>
+                                <input
+                                  ref={cameraInputRef}
+                                  type="file"
+                                  className="hidden"
+                                  accept="image/*"
+                                  capture="environment"
+                                  onChange={handlePhotoChange}
+                                  data-testid="input-camera"
+                                />
                                 <div className="flex justify-center">
                                   <Button
                                     type="button"

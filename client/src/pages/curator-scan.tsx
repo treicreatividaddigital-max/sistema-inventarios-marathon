@@ -27,74 +27,106 @@ export default function CuratorScanPage() {
     processingRef.current = false;
   };
 
-  const isValidCode = (code: string): boolean => {
-    return code.length > 0 && code.length <= 100 && /^[a-zA-Z0-9\-_]+$/.test(code);
+  const isValidRackCode = (code: string): boolean => {
+  const c = (code || "").trim();
+  return c.length > 0 && c.length <= 100 && /^[a-zA-Z0-9\-_]+$/.test(c);
+};
+
+// Garment codes in this app may contain spaces (e.g., "Prueba en Prod 1").
+// Accept any non-empty code that can safely be used as a single path segment.
+const isValidGarmentCode = (code: string): boolean => {
+  const c = (code || "").trim();
+  return c.length > 0 && c.length <= 100 && !c.includes("/") && !c.includes("\\");
+};
+const handleScan = (detectedCodes: IDetectedBarcode[]) => {
+  if (!detectedCodes || detectedCodes.length === 0 || processingRef.current) {
+    return;
+  }
+
+  const first = detectedCodes[0];
+  const raw = (first?.rawValue || "").trim();
+  if (!raw) return;
+
+  const navigateSafely = (path: string) => {
+    processingRef.current = true;
+    setIsPaused(true);
+    setTimeout(() => {
+      setIsScanning(false);
+      setTimeout(() => {
+        setLocation(path);
+      }, 50);
+    }, 50);
   };
 
-  const handleScan = (detectedCodes: IDetectedBarcode[]) => {
-    if (!detectedCodes || detectedCodes.length === 0 || processingRef.current) {
-      return;
-    }
+  // 1) Detect /garment/<code> or /rack/<code> anywhere in the scanned text (full URL or relative)
+  const garmentMatch = raw.match(/\/garment\/([^?#\/]+)/i);
+  const rackMatch = raw.match(/\/rack\/([^?#\/]+)/i);
 
-    const code = detectedCodes[0];
-    if (!code?.rawValue) {
-      return;
-    }
-
-    const data = code.rawValue;
-    let pathname: string;
-
-    try {
-      const url = new URL(data);
-      pathname = url.pathname;
-    } catch (e) {
-      setError("Invalid QR code format. Please scan a valid QR code from this application.");
+  if (garmentMatch?.[1]) {
+    const garmentCode = decodeURIComponent(garmentMatch[1]).trim();
+    if (!garmentCode || !isValidGarmentCode(garmentCode)) {
+      setError("Invalid garment QR code: code format is incorrect.");
       setIsScanning(false);
       processingRef.current = false;
       return;
     }
+    navigateSafely(`/garment/${encodeURIComponent(garmentCode)}`);
+    return;
+  }
 
-    if (pathname.startsWith("/garment/")) {
-      const garmentCode = pathname.split("/garment/")[1]?.split("/")[0];
-      if (!garmentCode || !isValidCode(garmentCode)) {
-        setError("Invalid garment QR code: code format is incorrect.");
-        setIsScanning(false);
-        processingRef.current = false;
-        return;
-      }
-
-      processingRef.current = true;
-      setIsPaused(true);
-      setTimeout(() => {
-        setIsScanning(false);
-        setTimeout(() => {
-          setLocation(`/garment/${garmentCode}`);
-        }, 50);
-      }, 50);
-    } else if (pathname.startsWith("/rack/")) {
-      const rackCode = pathname.split("/rack/")[1]?.split("/")[0];
-      if (!rackCode || !isValidCode(rackCode)) {
-        setError("Invalid rack QR code: code format is incorrect.");
-        setIsScanning(false);
-        processingRef.current = false;
-        return;
-      }
-
-      processingRef.current = true;
-      setIsPaused(true);
-      setTimeout(() => {
-        setIsScanning(false);
-        setTimeout(() => {
-          setLocation(`/rack/${rackCode}`);
-        }, 50);
-      }, 50);
-    } else {
-      setError("Invalid QR code: must be a garment or rack code.");
+  if (rackMatch?.[1]) {
+    const rackCode = decodeURIComponent(rackMatch[1]).trim();
+    if (!rackCode || !isValidRackCode(rackCode)) {
+      setError("Invalid rack QR code: code format is incorrect.");
       setIsScanning(false);
       processingRef.current = false;
+      return;
     }
-  };
+    navigateSafely(`/rack/${encodeURIComponent(rackCode)}`);
+    return;
+  }
 
+  // 2) If it's a relative path without domain (e.g. "/garment/XXX")
+  if (raw.startsWith("/garment/")) {
+    const encoded = raw.split("/garment/")[1]?.split("/")[0] || "";
+    const garmentCode = decodeURIComponent(encoded).trim();
+    if (!garmentCode || !isValidGarmentCode(garmentCode)) {
+      setError("Invalid garment QR code: code format is incorrect.");
+      setIsScanning(false);
+      processingRef.current = false;
+      return;
+    }
+    navigateSafely(`/garment/${encodeURIComponent(garmentCode)}`);
+    return;
+  }
+
+  if (raw.startsWith("/rack/")) {
+    const encoded = raw.split("/rack/")[1]?.split("/")[0] || "";
+    const rackCode = decodeURIComponent(encoded).trim();
+    if (!rackCode || !isValidRackCode(rackCode)) {
+      setError("Invalid rack QR code: code format is incorrect.");
+      setIsScanning(false);
+      processingRef.current = false;
+      return;
+    }
+    navigateSafely(`/rack/${encodeURIComponent(rackCode)}`);
+    return;
+  }
+
+  // 3) If it's just a code (no URL)
+  if (isValidRackCode(raw)) {
+    navigateSafely(`/rack/${encodeURIComponent(raw.trim())}`);
+    return;
+  }
+  if (isValidGarmentCode(raw)) {
+    navigateSafely(`/garment/${encodeURIComponent(raw.trim())}`);
+    return;
+  }
+
+  setError(`Invalid QR code: must be a garment or rack code. Value: ${raw.slice(0, 80)}`);
+  setIsScanning(false);
+  processingRef.current = false;
+};
   const handleError = (error: unknown) => {
     console.error("QR Scanner error:", error);
     setIsScanning(false);

@@ -1,6 +1,6 @@
 // Reference: javascript_database integration blueprint
 import { db } from "./db";
-import { eq, and, or, like, sql } from "drizzle-orm";
+import { eq, and, or, like, sql, desc } from "drizzle-orm";
 import {
   users,
   categories,
@@ -243,8 +243,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getRackByCode(code: string): Promise<Rack | undefined> {
-    const [rack] = await db.select().from(racks).where(eq(racks.code, code));
-    return rack || undefined;
+    const normalized = (code ?? "").trim();
+    if (!normalized) return undefined;
+    const [row] = await db
+      .select()
+      .from(racks)
+      .where(sql`trim(${racks.code}) = ${normalized}`)
+      .limit(1);
+    return row || undefined;
   }
 
   async createRack(rack: InsertRack): Promise<Rack> {
@@ -336,8 +342,14 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getGarmentByCode(code: string): Promise<Garment | undefined> {
-    const [garment] = await db.select().from(garments).where(eq(garments.code, code));
-    return garment || undefined;
+    const normalized = (code ?? "").trim();
+    if (!normalized) return undefined;
+    const [row] = await db
+      .select()
+      .from(garments)
+      .where(sql`trim(${garments.code}) = ${normalized}`)
+      .limit(1);
+    return row || undefined;
   }
 
   async getGarmentsByRack(rackId: string): Promise<Garment[]> {
@@ -361,7 +373,7 @@ export class DatabaseStorage implements IStorage {
 
   // Movements
   async getMovementsByGarment(garmentId: string): Promise<Movement[]> {
-    return await db.select().from(movements).where(eq(movements.garmentId, garmentId)).orderBy(movements.movedAt);
+    return await db.select().from(movements).where(eq(movements.garmentId, garmentId)).orderBy(desc(movements.movedAt));
   }
 
   async createMovement(movement: InsertMovement): Promise<Movement> {

@@ -1,13 +1,24 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertGarmentSchema, type Category, type GarmentType, type Collection, type Lot, type Rack, type Garment } from "@shared/schema";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, invalidateGarmentQueries } from "@/lib/queryClient";
 import { z } from "zod";
-import { ArrowLeft, ArrowRight, Check, Loader2, Upload, Camera, X } from "lucide-react";
+import {ArrowLeft, ArrowRight, Check, Loader2, Upload, Camera, X, Trash2} from "lucide-react";
 import { useLocation, useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   Card,
   CardContent,
@@ -67,6 +78,8 @@ export default function CuratorEditGarmentPage() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const triggerNativeCameraCapture = () => cameraInputRef.current?.click();
   const [deletePhoto, setDeletePhoto] = useState(false);
   const { toast } = useToast();
   const [, navigate] = useLocation();
@@ -178,19 +191,44 @@ export default function CuratorEditGarmentPage() {
 
       return await apiRequest("PATCH", `/api/garments/${garmentId}`, formData);
     },
-    onSuccess: () => {
+    onSuccess: (updated: any) => {
       toast({
         title: "Garment updated successfully",
         description: "The garment has been updated",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/garments"], exact: false });
-      navigate(`/garment/${garment?.code}`);
+      invalidateGarmentQueries();
+      const nextCode = updated?.code ?? garment?.code;
+      navigate(`/garment/${encodeURIComponent(nextCode)}`);
     },
     onError: (error: any) => {
       const errorMessage = error?.message || error?.error || "Unknown error occurred";
       console.error("Error updating garment:", error);
       toast({
         title: "Error updating garment",
+        description: errorMessage,
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteGarmentMutation = useMutation({
+    mutationFn: async () => {
+      if (!garmentId) throw new Error("Missing garment id");
+      return await apiRequest("DELETE", `/api/garments/${garmentId}`);
+    },
+    onSuccess: () => {
+      toast({
+        title: "Garment deleted",
+        description: "The garment has been deleted successfully",
+      });
+      invalidateGarmentQueries();
+      navigate("/curator");
+    },
+    onError: (error: any) => {
+      const errorMessage = error?.message || error?.error || "Unknown error occurred";
+      console.error("Error deleting garment:", error);
+      toast({
+        title: "Error deleting garment",
         description: errorMessage,
         variant: "destructive",
       });
@@ -221,6 +259,11 @@ export default function CuratorEditGarmentPage() {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    // Evitar fugas de memoria si el preview anterior era un blob: URL
+    if (photoPreview?.startsWith("blob:")) {
+      URL.revokeObjectURL(photoPreview);
+    }
+
     setPhotoFile(file);
     setDeletePhoto(false);
 
@@ -233,59 +276,19 @@ export default function CuratorEditGarmentPage() {
   };
 
   const handleCameraCapture = async () => {
-    let stream: MediaStream | null = null;
-    
     try {
       setIsCapturingPhoto(true);
-      stream = await navigator.mediaDevices.getUserMedia({
-        video: { facingMode: "environment" },
-      });
-
-      const video = document.createElement("video");
-      video.srcObject = stream;
-      await video.play();
-
-      await new Promise((resolve) => {
-        video.onloadedmetadata = resolve;
-      });
-
-      const canvas = document.createElement("canvas");
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      const ctx = canvas.getContext("2d");
-      ctx?.drawImage(video, 0, 0);
-
-      const dataUrl = canvas.toDataURL("image/jpeg", 0.8);
-      setPhotoPreview(dataUrl);
-
-      const response = await fetch(dataUrl);
-      const blob = await response.blob();
-      const file = new File([blob], `capture-${Date.now()}.jpg`, {
-        type: blob.type || "image/jpeg",
-      });
-      setPhotoFile(file);
-      setDeletePhoto(false);
-      form.setValue("photoUrl", "");
-
-      toast({
-        title: "Photo captured",
-        description: "Photo has been captured successfully",
-      });
-    } catch (error: any) {
-      toast({
-        title: "Camera error",
-        description: error?.message || "Could not access camera",
-        variant: "destructive",
-      });
+      triggerNativeCameraCapture();
     } finally {
-      if (stream) {
-        stream.getTracks().forEach((track) => track.stop());
-      }
       setIsCapturingPhoto(false);
     }
   };
 
+
   const handleRemovePhoto = () => {
+    if (photoPreview?.startsWith("blob:")) {
+      URL.revokeObjectURL(photoPreview);
+    }
     setPhotoPreview(null);
     setPhotoFile(null);
     setDeletePhoto(true);
@@ -331,12 +334,48 @@ export default function CuratorEditGarmentPage() {
         <Button type="button" variant="ghost" size="icon" onClick={() => navigate(`/garment/${garment.code}`)} data-testid="button-back">
           <ArrowLeft className="h-5 w-5" />
         </Button>
-        <div>
+
+        <div className="flex-1">
           <h1 className="text-3xl font-semibold">Edit Garment</h1>
           <p className="text-muted-foreground mt-2">
             Update garment information for {garment.code}
           </p>
         </div>
+
+        <AlertDialog>
+          <AlertDialogTrigger asChild>
+            <Button
+              type="button"
+              variant="destructive"
+              disabled={deleteGarmentMutation.isPending}
+              data-testid="button-delete-garment"
+            >
+              {deleteGarmentMutation.isPending ? (
+                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
+              ) : (
+                <Trash2 className="h-4 w-4 mr-2" />
+              )}
+              Delete
+            </Button>
+          </AlertDialogTrigger>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>Delete this garment?</AlertDialogTitle>
+              <AlertDialogDescription>
+                This action cannot be undone. This will permanently delete the garment <span className="font-mono">{garment.code}</span>.
+              </AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction
+                className="bg-destructive text-destructive-foreground border border-destructive-border"
+                onClick={() => deleteGarmentMutation.mutate()}
+              >
+                Delete
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
       </div>
 
       <div className="space-y-2">
@@ -757,6 +796,15 @@ export default function CuratorEditGarmentPage() {
                                     data-testid="input-photo"
                                   />
                                 </label>
+                                <input
+                                  ref={cameraInputRef}
+                                  type="file"
+                                  className="hidden"
+                                  accept="image/*"
+                                  capture="environment"
+                                  onChange={handlePhotoChange}
+                                  data-testid="input-camera"
+                                />
                                 <div className="flex justify-center">
                                   <Button
                                     type="button"

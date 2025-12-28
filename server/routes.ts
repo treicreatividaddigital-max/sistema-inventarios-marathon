@@ -11,6 +11,74 @@ import { randomUUID } from "crypto";
 import path from "path";
 import { storage } from "./storage";
 
+
+// Hydrate garments for list/search responses (avoid "missing rack/lot" false positives in UI)
+async function hydrateGarmentList(garments: any[]) {
+  const categoryCache = new Map<string, any | null>();
+  const garmentTypeCache = new Map<string, any | null>();
+  const collectionCache = new Map<string, any | null>();
+  const lotCache = new Map<string, any | null>();
+  const rackCache = new Map<string, any | null>();
+
+  const getCached = async (
+    cache: Map<string, any | null>,
+    id: string | null | undefined,
+    getter: (id: string) => Promise<any | undefined>
+  ) => {
+    if (!id) return null;
+    if (cache.has(id)) return cache.get(id)!;
+    const v = (await getter(id)) ?? null;
+    cache.set(id, v);
+    return v;
+  };
+
+  return await Promise.all(
+    garments.map(async (g) => ({
+      ...g,
+      category: await getCached(categoryCache, g.categoryId, storage.getCategory.bind(storage)),
+      garmentType: await getCached(garmentTypeCache, g.garmentTypeId, storage.getGarmentType.bind(storage)),
+      collection: await getCached(collectionCache, g.collectionId, storage.getCollection.bind(storage)),
+      lot: await getCached(lotCache, g.lotId, storage.getLot.bind(storage)),
+      rack: await getCached(rackCache, g.rackId ?? null, storage.getRack.bind(storage)),
+    }))
+  );
+}
+
+
+// Hydrate movements for garment details (avoid "Added to undefined" and hide sensitive fields)
+async function hydrateMovementsList(movements: any[]) {
+  const rackCache = new Map<string, any | null>();
+  const userCache = new Map<string, any | null>();
+
+  const getCached = async (
+    cache: Map<string, any | null>,
+    id: string | null | undefined,
+    getter: (id: string) => Promise<any | undefined>
+  ) => {
+    if (!id) return null;
+    if (cache.has(id)) return cache.get(id)!;
+    const v = (await getter(id)) ?? null;
+    cache.set(id, v);
+    return v;
+  };
+
+  const getUserSafe = async (id: string | null | undefined) => {
+    const u = await getCached(userCache, id, storage.getUser.bind(storage));
+    if (!u) return null;
+    // IMPORTANT: never send password hashes to client
+    return { id: u.id, email: u.email, role: u.role };
+  };
+
+  return await Promise.all(
+    movements.map(async (m) => ({
+      ...m,
+      fromRack: await getCached(rackCache, m.fromRackId, storage.getRack.bind(storage)),
+      toRack: await getCached(rackCache, m.toRackId, storage.getRack.bind(storage)),
+      movedBy: await getUserSafe(m.movedById),
+    }))
+  );
+}
+
 // JWT Secret and bcrypt configuration from environment
 const JWT_SECRET_ENV = process.env.JWT_SECRET;
 if (!JWT_SECRET_ENV) {
@@ -777,17 +845,42 @@ if (!gcsBucket) {
 
       // Get garments in this rack
       const garments = await storage.getGarmentsByRack(rack.id);
+      const hydratedGarments = await hydrateGarmentList(garments);
 
       res.json({
         ...rack,
-        garments,
+        garments: hydratedGarments,
       });
     } catch (error) {
       next(error);
     }
   });
 
-  app.get("/api/racks/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  
+  app.get("/api/racks/by-code/:code/qr", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rack = await storage.getRackByCode(req.params.code);
+      if (!rack) {
+        return res.status(404).json({ statusCode: 404, message: "Rack not found", timestamp: new Date().toISOString() });
+      }
+
+      const proto = req.get("x-forwarded-proto") || req.protocol;
+      const baseUrl = `${proto}://${req.get("host")}`;
+      const rackUrl = `${baseUrl}/rack/${encodeURIComponent(rack.code)}`;
+      const qrUrl = await generateQRCode(rackUrl);
+
+      // Persist refreshed QR so UI shows the correct one
+      if (rack.qrUrl !== qrUrl) {
+        await storage.updateRack(rack.id, { qrUrl });
+      }
+
+      res.json({ rackId: rack.id, code: rack.code, rackUrl, qrUrl });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+app.get("/api/racks/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const rack = await storage.getRack(req.params.id);
       if (!rack) {
@@ -800,29 +893,92 @@ if (!gcsBucket) {
 
       // Get garments in this rack
       const garments = await storage.getGarmentsByRack(req.params.id);
+      const hydratedGarments = await hydrateGarmentList(garments);
 
       res.json({
         ...rack,
-        garments,
+        garments: hydratedGarments,
       });
     } catch (error) {
       next(error);
     }
   });
 
-  app.post("/api/racks", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  
+  app.post("/api/racks/:id/move-garments", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user || (req.user.role !== "ADMIN" && req.user.role !== "CURATOR")) {
+        return res.status(403).json({ statusCode: 403, message: "Forbidden", timestamp: new Date().toISOString() });
+      }
+
+      const fromRackId = req.params.id;
+      const { toRackId, garmentIds, note } = req.body ?? {};
+
+      if (!toRackId) {
+        return res.status(400).json({ statusCode: 400, message: "toRackId is required", timestamp: new Date().toISOString() });
+      }
+      if (toRackId === fromRackId) {
+        return res.status(400).json({ statusCode: 400, message: "Destination rack must be different", timestamp: new Date().toISOString() });
+      }
+
+      const [fromRack, toRack] = await Promise.all([
+        storage.getRack(fromRackId),
+        storage.getRack(toRackId),
+      ]);
+
+      if (!fromRack) {
+        return res.status(404).json({ statusCode: 404, message: "Source rack not found", timestamp: new Date().toISOString() });
+      }
+      if (!toRack) {
+        return res.status(404).json({ statusCode: 404, message: "Destination rack not found", timestamp: new Date().toISOString() });
+      }
+
+      let garments = await storage.getGarmentsByRack(fromRackId);
+
+      if (Array.isArray(garmentIds) && garmentIds.length > 0) {
+        const setIds = new Set(garmentIds);
+        garments = garments.filter((g) => setIds.has(g.id));
+      }
+
+      const moved = [];
+      for (const g of garments) {
+        const result = await storage.moveGarment(
+          g.id,
+          toRackId,
+          g.status, // keep same status
+          req.user.id,
+          note || `Moved from rack ${fromRack.code} to ${toRack.code}`
+        );
+        moved.push(result.garment.id);
+      }
+
+      res.json({
+        fromRackId,
+        toRackId,
+        movedCount: moved.length,
+        garmentIds: moved,
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+app.post("/api/racks", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const { code, name, zone } = req.body;
 
-      // Generate QR code for rack
-      const baseUrl = process.env.REPLIT_DEV_DOMAIN
-        ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-        : "http://localhost:5000";
-      const rackUrl = `${baseUrl}/rack/${code}`;
-      const qrUrl = await generateQRCode(rackUrl);
+      const codeNormalized = String(code ?? "").trim();
+      if (!codeNormalized) {
+        return res.status(400).json({ statusCode: 400, message: "code is required", timestamp: new Date().toISOString() });
+      }
 
-      const rack = await storage.createRack({
-        code,
+      // Generate QR code for rack (use real host in Cloud Run)
+      const proto = req.get("x-forwarded-proto") || req.protocol;
+      const baseUrl = `${proto}://${req.get("host")}`;
+      const rackUrl = `${baseUrl}/rack/${encodeURIComponent(codeNormalized)}`;
+      const qrUrl = await generateQRCode(rackUrl);
+const rack = await storage.createRack({
+        code: codeNormalized,
         name,
         zone,
         qrUrl,
@@ -905,7 +1061,8 @@ if (!gcsBucket) {
       });
 
       const garments = await storage.searchGarments(filters);
-      res.json(garments);
+      const hydrated = await hydrateGarmentList(garments);
+      res.json(hydrated);
     } catch (error) {
       next(error);
     }
@@ -936,7 +1093,8 @@ if (!gcsBucket) {
       });
 
       const garments = await storage.searchGarments(filters);
-      res.json(garments);
+      const hydrated = await hydrateGarmentList(garments);
+      res.json(hydrated);
     } catch (error) {
       next(error);
     }
@@ -970,12 +1128,37 @@ if (!gcsBucket) {
         collection,
         lot,
         rack,
-        movements,
+        movements: await hydrateMovementsList(movements),
       });
     } catch (error) {
       next(error);
     }
   });
+
+  
+  app.get("/api/garments/by-code/:code/qr", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const garment = await storage.getGarmentByCode(req.params.code);
+      if (!garment) {
+        return res.status(404).json({ statusCode: 404, message: "Garment not found", timestamp: new Date().toISOString() });
+      }
+
+      const proto = req.get("x-forwarded-proto") || req.protocol;
+      const baseUrl = `${proto}://${req.get("host")}`;
+      const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(garment.code)}`;
+      const qrUrl = await generateQRCode(garmentUrl);
+
+      // Persistir QR correcto si estaba con dominio viejo/localhost
+      if (garment.qrUrl !== qrUrl) {
+        await storage.updateGarment(garment.id, { qrUrl });
+      }
+
+      res.json({ garmentId: garment.id, code: garment.code, garmentUrl, qrUrl });
+    } catch (error) {
+      next(error);
+    }
+  });
+
 
   app.get("/api/garments/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -993,7 +1176,7 @@ if (!gcsBucket) {
 
       res.json({
         ...garment,
-        movements,
+        movements: await hydrateMovementsList(movements),
       });
     } catch (error) {
       next(error);
@@ -1016,10 +1199,9 @@ if (!gcsBucket) {
         const { code, size, color, gender, status, categoryId, garmentTypeId, collectionId, lotId, rackId, photoUrl: bodyPhotoUrl } = req.body;
 
         // Generate QR code for garment
-        const baseUrl = process.env.REPLIT_DEV_DOMAIN
-          ? `https://${process.env.REPLIT_DEV_DOMAIN}`
-          : "http://localhost:5000";
-        const garmentUrl = `${baseUrl}/garment/${code}`;
+        const proto = req.get("x-forwarded-proto") || req.protocol;
+        const baseUrl = `${proto}://${req.get("host")}`;
+        const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(code)}`;
         const qrUrl = await generateQRCode(garmentUrl);
 
         // Determine photo URL: from uploaded file or from JSON body

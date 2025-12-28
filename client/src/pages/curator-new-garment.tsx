@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { insertGarmentSchema, type InsertGarment, type Category, type GarmentType, type Collection, type Lot, type Rack } from "@shared/schema";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, queryClient } from "@/lib/queryClient";
+import { apiRequest, invalidateGarmentQueries } from "@/lib/queryClient";
 import { z } from "zod";
 import { ArrowLeft, ArrowRight, Check, Loader2, Upload, Camera } from "lucide-react";
 import { useLocation } from "wouter";
@@ -146,7 +146,7 @@ export default function CuratorNewGarmentPage() {
         title: "Garment created successfully",
         description: "The garment has been added to inventory",
       });
-      queryClient.invalidateQueries({ queryKey: ["/api/garments"] });
+      invalidateGarmentQueries();
       navigate("/curator");
     },
     onError: (error: any) => {

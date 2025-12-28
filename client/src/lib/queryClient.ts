@@ -86,3 +86,20 @@ export const queryClient = new QueryClient({
     },
   },
 });
+
+
+/**
+ * Invalidate any cached queries related to garments, regardless of how the queryKey was built.
+ * This avoids stale UI issues when queries use full URLs (e.g. '/api/garments/search?...') as the queryKey.
+ */
+export function invalidateGarmentQueries() {
+  queryClient.invalidateQueries({
+    predicate: (q) => {
+      const key0 = (q.queryKey as any)?.[0];
+      return typeof key0 === 'string' && key0.startsWith('/api/garments');
+    },
+  });
+
+  // Stats depend on garment counts
+  queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+}

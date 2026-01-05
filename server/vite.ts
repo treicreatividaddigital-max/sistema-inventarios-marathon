@@ -1,4 +1,4 @@
-import { type Express } from "express";
+import { type Express, type NextFunction } from "express";
 import express from "express";
 import fs from "fs";
 import path from "path";
@@ -121,7 +121,9 @@ export function serveStatic(app: Express) {
   );
 
   // SPA fallback: siempre index fresco
-  app.use("*", (_req, res) => {
+  app.use("*", (req: any, res: any, next: any) => {
+    if (req.path?.startsWith("/api/")) return next();
+
     setNoStore(res, "spa-fallback");
     res.type("text/html").send(indexHtml);
   });

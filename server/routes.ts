@@ -419,6 +419,82 @@ if (!gcsBucket) {
           message: "Only curators can create users",
           timestamp: new Date().toISOString(),
         });
+
+
+// GET /api/users - List users (CURATOR only)
+app.get("/api/users", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (req.user!.role !== "CURATOR") {
+      return res.status(403).json({
+        statusCode: 403,
+        message: "Only curators can list users",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const allUsers = await storage.listUsers();
+    res.json(allUsers);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// DELETE /api/users/:id - Delete user (CURATOR only)
+app.delete("/api/users/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (req.user!.role !== "CURATOR") {
+      return res.status(403).json({
+        statusCode: 403,
+        message: "Only curators can delete users",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const targetId = req.params.id;
+
+    if (targetId === req.user!.id) {
+      return res.status(400).json({
+        statusCode: 400,
+        message: "You cannot delete your own account",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const target = await storage.getUser(targetId);
+    if (!target) {
+      return res.status(404).json({
+        statusCode: 404,
+        message: "User not found",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    if (target.role === "CURATOR") {
+      const curatorCount = await storage.countUsersByRole("CURATOR");
+      if (curatorCount <= 1) {
+        return res.status(400).json({
+          statusCode: 400,
+          message: "Cannot delete the last curator",
+          timestamp: new Date().toISOString(),
+        });
+      }
+    }
+
+    const deleted = await storage.deleteUser(targetId);
+    if (!deleted) {
+      return res.status(404).json({
+        statusCode: 404,
+        message: "User not found",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    res.json({ success: true });
+  } catch (error) {
+    next(error);
+  }
+});
+
       }
 
       const { email, password, name, role } = req.body;
@@ -1304,9 +1380,17 @@ if (req.file) {
     }
   );
 
-  app.delete("/api/garments/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.delete("/api/garments/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const deleted = await storage.deleteGarment(req.params.id);
+      if (req.user!.role !== "CURATOR") {
+      return res.status(403).json({
+        statusCode: 403,
+        message: "Only curators can delete garments",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const deleted = await storage.deleteGarment(req.params.id);
       if (!deleted) {
         return res.status(404).json({
           statusCode: 404,

@@ -8,6 +8,7 @@ import { z } from "zod";
 import {ArrowLeft, ArrowRight, Check, Loader2, Upload, Camera, X, Trash2} from "lucide-react";
 import { useLocation, useRoute } from "wouter";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth-context";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -71,6 +72,9 @@ const STEPS = [
 ];
 
 export default function CuratorEditGarmentPage() {
+  const { user } = useAuth();
+  const canDelete = user?.role === "CURATOR";
+
   const [, params] = useRoute("/curator/garment/:id/edit");
   const garmentId = params?.id;
   
@@ -342,6 +346,9 @@ export default function CuratorEditGarmentPage() {
           </p>
         </div>
 
+        {canDelete && (
+
+
         <AlertDialog>
           <AlertDialogTrigger asChild>
             <Button
@@ -376,6 +383,9 @@ export default function CuratorEditGarmentPage() {
             </AlertDialogFooter>
           </AlertDialogContent>
         </AlertDialog>
+
+
+        )}
       </div>
 
       <div className="space-y-2">

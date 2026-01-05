@@ -3,7 +3,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useLocation } from "wouter";
-import { QrCode, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
   Card,
@@ -74,10 +74,14 @@ export default function LoginPage() {
 
       <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-8">
-          <div className="flex h-16 w-16 items-center justify-center rounded-xl bg-primary mb-4">
-            <QrCode className="h-10 w-10 text-primary-foreground" />
+          <div className="mb-4">
+            <img
+              src="/icons/icon-192x192.png"
+              alt="Archive"
+              className="h-20 w-20 rounded-2xl shadow"
+            />
           </div>
-          <h1 className="text-3xl font-semibold">Smart Garment Inventory</h1>
+          <h1 className="text-3xl font-semibold tracking-tight">ARCHIVE</h1>
           <p className="text-muted-foreground mt-2">
             Sign in to manage your inventory
           </p>

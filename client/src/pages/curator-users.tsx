@@ -1,7 +1,8 @@
 import { useState } from "react";
-import { useMutation } from "@tanstack/react-query";
-import { UserPlus } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { Trash2, UserPlus } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
 import {
   Card,
   CardContent,
@@ -17,6 +18,17 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from "@/components/ui/alert-dialog";
 import {
   Form,
   FormControl,
@@ -34,82 +46,108 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { apiRequest } from "@/lib/queryClient";
+import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth-context";
 
 const userSchema = z.object({
   name: z.string().min(1, "Name is required"),
   email: z.string().email("Invalid email address"),
   password: z.string().min(6, "Password must be at least 6 characters"),
-  role: z.enum(["ADMIN", "CURATOR"], {
-    required_error: "Role is required",
-  }),
+  role: z.enum(["ADMIN", "CURATOR"], { required_error: "Role is required" }),
 });
 
 type UserFormData = z.infer<typeof userSchema>;
 
+type UserRow = {
+  id: string;
+  email: string;
+  name: string;
+  role: "ADMIN" | "CURATOR" | "USER";
+  createdAt: string;
+};
+
 export default function CuratorUsersPage() {
   const { toast } = useToast();
+  const { user } = useAuth();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+
+  if (user?.role !== "CURATOR") {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-3xl font-semibold">Team Management</h1>
+          <p className="text-muted-foreground mt-2">
+            You do not have permission to manage users.
+          </p>
+        </div>
+        <Card>
+          <CardHeader>
+            <CardTitle>Access denied</CardTitle>
+            <CardDescription>
+              Only the principal curator (role CURATOR) can create or delete users.
+            </CardDescription>
+          </CardHeader>
+        </Card>
+      </div>
+    );
+  }
 
   const form = useForm<UserFormData>({
     resolver: zodResolver(userSchema),
-    defaultValues: {
-      name: "",
-      email: "",
-      password: "",
-      role: "ADMIN",
-    },
+    defaultValues: { name: "", email: "", password: "", role: "ADMIN" },
+  });
+
+  const usersQuery = useQuery<UserRow[]>({
+    queryKey: ["/api/users"],
+    queryFn: async () => await apiRequest("GET", "/api/users"),
+    staleTime: 0,
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: UserFormData) => {
-      return await apiRequest("POST", "/api/users", data);
-    },
+    mutationFn: async (data: UserFormData) => await apiRequest("POST", "/api/users", data),
     onSuccess: () => {
-      toast({
-        title: "User created",
-        description: "The user has been created successfully.",
-      });
+      toast({ title: "User created", description: "The user has been created successfully." });
       setIsDialogOpen(false);
       form.reset();
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
     },
     onError: (error: any) => {
       toast({
-        title: "Error creating user",
-        description: error?.message || "An error occurred",
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to create user",
         variant: "destructive",
       });
     },
   });
 
-  const handleOpenDialog = () => {
-    form.reset({
-      name: "",
-      email: "",
-      password: "",
-      role: "ADMIN",
-    });
-    setIsDialogOpen(true);
-  };
-
-  const onSubmit = (data: UserFormData) => {
-    createMutation.mutate(data);
-  };
+  const deleteMutation = useMutation({
+    mutationFn: async (userId: string) => await apiRequest("DELETE", `/api/users/${userId}`),
+    onSuccess: () => {
+      toast({ title: "User deleted", description: "The user has been deleted successfully." });
+      queryClient.invalidateQueries({ queryKey: ["/api/users"] });
+    },
+    onError: (error: any) => {
+      toast({
+        title: "Error",
+        description: error instanceof Error ? error.message : "Failed to delete user",
+        variant: "destructive",
+      });
+    },
+  });
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex justify-between items-start gap-4">
         <div>
           <h1 className="text-3xl font-semibold">Team Management</h1>
-          <p className="text-muted-foreground mt-2">
-            Add team members with Admin or Curator roles
-          </p>
+          <p className="text-muted-foreground mt-2">Curator-only user administration</p>
         </div>
-        <Button onClick={handleOpenDialog} data-testid="button-new-user">
+        <Button onClick={() => { form.reset(); setIsDialogOpen(true); }} data-testid="button-new-user">
           <UserPlus className="h-4 w-4 mr-2" />
           Add Team Member
         </Button>
@@ -117,25 +155,80 @@ export default function CuratorUsersPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>About Roles</CardTitle>
-          <CardDescription>Understanding access levels</CardDescription>
+          <CardTitle>Team Members</CardTitle>
+          <CardDescription>Only CURATOR can create/delete users.</CardDescription>
         </CardHeader>
-        <CardContent className="space-y-4">
-          <div>
-            <h3 className="font-semibold text-sm mb-1">Admin Role</h3>
-            <p className="text-sm text-muted-foreground">
-              View-only access to Dashboard and Search. Cannot modify inventory
-              or create new items.
+        <CardContent>
+          {usersQuery.isLoading ? (
+            <p className="text-sm text-muted-foreground">Loading users...</p>
+          ) : usersQuery.isError ? (
+            <p className="text-sm text-destructive">
+              Error loading users: {String((usersQuery.error as any)?.message || usersQuery.error)}
             </p>
-          </div>
-          <div>
-            <h3 className="font-semibold text-sm mb-1">Curator Role</h3>
-            <p className="text-sm text-muted-foreground">
-              Full access to all features including creating garments, managing
-              categories, types, collections, lots, racks, and creating new
-              team members.
-            </p>
-          </div>
+          ) : (
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Name</TableHead>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Role</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(usersQuery.data || []).map((u) => {
+                  const isSelf = u.id === user?.id;
+                  return (
+                    <TableRow key={u.id}>
+                      <TableCell className="font-medium">{u.name}</TableCell>
+                      <TableCell className="font-mono text-xs">{u.email}</TableCell>
+                      <TableCell>
+                        <Badge variant={u.role === "CURATOR" ? "default" : "secondary"}>{u.role}</Badge>
+                      </TableCell>
+                      <TableCell className="text-sm text-muted-foreground">
+                        {u.createdAt ? new Date(u.createdAt).toLocaleString() : ""}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <AlertDialog>
+                          <AlertDialogTrigger asChild>
+                            <Button
+                              variant="destructive"
+                              size="sm"
+                              disabled={isSelf || deleteMutation.isPending}
+                              title={isSelf ? "You cannot delete yourself" : "Delete user"}
+                              data-testid={`button-delete-user-${u.id}`}
+                            >
+                              <Trash2 className="h-4 w-4 mr-2" />
+                              Delete
+                            </Button>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>Delete this user?</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                This action cannot be undone. This will permanently delete the user{" "}
+                                <span className="font-mono">{u.email}</span>.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                              <AlertDialogAction
+                                className="bg-destructive text-destructive-foreground border border-destructive-border"
+                                onClick={() => deleteMutation.mutate(u.id)}
+                              >
+                                Delete
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          )}
         </CardContent>
       </Card>
 
@@ -143,114 +236,55 @@ export default function CuratorUsersPage() {
         <DialogContent>
           <DialogHeader>
             <DialogTitle>Add Team Member</DialogTitle>
-            <DialogDescription>
-              Create a new Admin or Curator account
-            </DialogDescription>
+            <DialogDescription>Create a new user with Admin or Curator role.</DialogDescription>
           </DialogHeader>
+
           <Form {...form}>
-            <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-              <FormField
-                control={form.control}
-                name="name"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Name</FormLabel>
+            <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="space-y-4">
+              <FormField control={form.control} name="name" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Name</FormLabel>
+                  <FormControl><Input placeholder="Full name" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="email" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Email</FormLabel>
+                  <FormControl><Input placeholder="email@company.com" {...field} /></FormControl>
+                  <FormDescription>User will use this email to sign in.</FormDescription>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="password" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Password</FormLabel>
+                  <FormControl><Input type="password" placeholder="********" {...field} /></FormControl>
+                  <FormMessage />
+                </FormItem>
+              )} />
+              <FormField control={form.control} name="role" render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Role</FormLabel>
+                  <Select value={field.value} onValueChange={field.onChange}>
                     <FormControl>
-                      <Input
-                        {...field}
-                        placeholder="Full name"
-                        data-testid="input-name"
-                      />
+                      <SelectTrigger>
+                        <SelectValue placeholder="Select role" />
+                      </SelectTrigger>
                     </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="email"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Email</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        type="email"
-                        placeholder="email@example.com"
-                        data-testid="input-email"
-                      />
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="password"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Password</FormLabel>
-                    <FormControl>
-                      <Input
-                        {...field}
-                        type="password"
-                        placeholder="Minimum 6 characters"
-                        data-testid="input-password"
-                      />
-                    </FormControl>
-                    <FormDescription>
-                      The user will use this password to login
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              <FormField
-                control={form.control}
-                name="role"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Role</FormLabel>
-                    <Select
-                      onValueChange={field.onChange}
-                      defaultValue={field.value}
-                    >
-                      <FormControl>
-                        <SelectTrigger data-testid="select-role">
-                          <SelectValue placeholder="Select role" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        <SelectItem value="ADMIN">Admin (View-only)</SelectItem>
-                        <SelectItem value="CURATOR">
-                          Curator (Full access)
-                        </SelectItem>
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>
-                      Choose the access level for this user
-                    </FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
+                    <SelectContent>
+                      <SelectItem value="ADMIN">Admin</SelectItem>
+                      <SelectItem value="CURATOR">Curator</SelectItem>
+                    </SelectContent>
+                  </Select>
+                  <FormMessage />
+                </FormItem>
+              )} />
               <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsDialogOpen(false)}
-                >
+                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)}>
                   Cancel
                 </Button>
-                <Button
-                  type="submit"
-                  disabled={createMutation.isPending}
-                  data-testid="button-create"
-                >
+                <Button type="submit" disabled={createMutation.isPending}>
                   {createMutation.isPending ? "Creating..." : "Create User"}
                 </Button>
               </DialogFooter>

@@ -78,16 +78,18 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className="p-4">
-        <div className="flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary">
-            <QrCode className="h-6 w-6 text-primary-foreground" />
-          </div>
-          <div>
-            <h2 className="text-base font-semibold">Smart Garment</h2>
-            <p className="text-xs text-muted-foreground">Inventory System</p>
-          </div>
-        </div>
-      </SidebarHeader>
+  <div className="flex items-center gap-3">
+    <img
+      src="/icons/icon-72x72.png"
+      alt="Archive"
+      className="h-10 w-10 rounded-lg"
+    />
+    <div>
+      <h2 className="text-base font-semibold tracking-tight">ARCHIVE</h2>
+      <p className="text-xs text-muted-foreground">Inventory System</p>
+    </div>
+  </div>
+</SidebarHeader>
 
       <SidebarContent>
         {/* Admin Menu - Read-only access to Dashboard and Search */}

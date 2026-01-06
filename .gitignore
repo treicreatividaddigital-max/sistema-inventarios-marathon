@@ -6,3 +6,8 @@ vite.config.ts.*
 *.tar.gz
 # Ignore runtime uploads (photos)
 uploads/
+
+# backups
+*.bak.*
+# tools temporales
+tools/

@@ -213,6 +213,22 @@ const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunctio
   }
 };
 
+
+const requireAdmin = (req: AuthRequest, res: Response): boolean => {
+  const primaryEmail = (process.env.PRIMARY_CURATOR_EMAIL || "").toLowerCase();
+  const isPrimary = !!primaryEmail && (req.user?.email || "").toLowerCase() === primaryEmail;
+  if (!req.user || (req.user.role !== "ADMIN" && !isPrimary)) {
+    res.status(403).json({
+      statusCode: 403,
+      message: "Admin access required",
+      timestamp: new Date().toISOString(),
+    });
+    return false;
+  }
+  return true;
+};
+
+
 // QR code generation utility
 const generateQRCode = async (data: string): Promise<string> => {
   try {
@@ -231,6 +247,17 @@ const generateQRCode = async (data: string): Promise<string> => {
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
+
+// Debug/version endpoint (helps validate deployments quickly)
+app.get("/api/version", (_req, res) => {
+  res.json({
+    name: process.env.npm_package_name ?? "ms-inv",
+    env: process.env.NODE_ENV ?? "unknown",
+    commit: process.env.GIT_SHA ?? process.env.K_REVISION ?? "unknown",
+    timestamp: new Date().toISOString(),
+  });
+});
+
   // Uploads:
 // - Local dev: store files in ./uploads and serve at /uploads
 // - Cloud Run: store files in Google Cloud Storage (GCS_BUCKET) and serve via /api/photos/:name
@@ -398,11 +425,14 @@ if (!gcsBucket) {
         });
       }
 
+      const primaryEmail = (process.env.PRIMARY_CURATOR_EMAIL || "").toLowerCase();
+      const isPrimaryCurator = !!primaryEmail && user.email.toLowerCase() === primaryEmail;
+
       res.json({
         id: user.id,
         email: user.email,
         name: user.name,
-        role: user.role,
+        role: isPrimaryCurator ? "ADMIN" : user.role,
       });
     } catch (error) {
       next(error);
@@ -410,7 +440,67 @@ if (!gcsBucket) {
   });
 
   // POST /api/users - Create new user (CURATOR only)
-  app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  
+// List users (admin only)
+app.get("/api/users", authMiddleware, async (req: AuthRequest, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+
+  const users = await storage.getAllUsers();
+  // Never return password hashes
+  const sanitized = users.map((u: any) => ({
+    id: u.id,
+    email: u.email,
+    name: u.name,
+    role: u.role,
+    createdAt: u.createdAt,
+  }));
+  res.json(sanitized);
+});
+
+// Delete user (admin only)
+app.delete("/api/users/:id", authMiddleware, async (req: AuthRequest, res: Response) => {
+  if (!requireAdmin(req, res)) return;
+
+  const id = req.params.id;
+  if (!id) {
+    return res.status(400).json({
+      statusCode: 400,
+      message: "User ID is required",
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  // Prevent deleting yourself
+  if (req.user?.id === id) {
+    return res.status(400).json({
+      statusCode: 400,
+      message: "You cannot delete your own user",
+      timestamp: new Date().toISOString(),
+    });
+  }
+
+  try {
+    const ok = await storage.deleteUser(id);
+    if (!ok) {
+      return res.status(404).json({
+        statusCode: 404,
+        message: "User not found",
+        timestamp: new Date().toISOString(),
+      });
+    }
+    res.json({ success: true });
+  } catch (e: any) {
+    // FK restrict (movements.movedById) will throw here
+    return res.status(409).json({
+      statusCode: 409,
+      message: "Cannot delete user because it is referenced by other records",
+      timestamp: new Date().toISOString(),
+    });
+  }
+});
+
+app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!requireAdmin(req, res)) return;
     try {
       // Only CURATOR can create users
       if (req.user!.role !== "CURATOR") {
@@ -419,82 +509,6 @@ if (!gcsBucket) {
           message: "Only curators can create users",
           timestamp: new Date().toISOString(),
         });
-
-
-// GET /api/users - List users (CURATOR only)
-app.get("/api/users", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    if (req.user!.role !== "CURATOR") {
-      return res.status(403).json({
-        statusCode: 403,
-        message: "Only curators can list users",
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    const allUsers = await storage.listUsers();
-    res.json(allUsers);
-  } catch (error) {
-    next(error);
-  }
-});
-
-// DELETE /api/users/:id - Delete user (CURATOR only)
-app.delete("/api/users/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
-  try {
-    if (req.user!.role !== "CURATOR") {
-      return res.status(403).json({
-        statusCode: 403,
-        message: "Only curators can delete users",
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    const targetId = req.params.id;
-
-    if (targetId === req.user!.id) {
-      return res.status(400).json({
-        statusCode: 400,
-        message: "You cannot delete your own account",
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    const target = await storage.getUser(targetId);
-    if (!target) {
-      return res.status(404).json({
-        statusCode: 404,
-        message: "User not found",
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    if (target.role === "CURATOR") {
-      const curatorCount = await storage.countUsersByRole("CURATOR");
-      if (curatorCount <= 1) {
-        return res.status(400).json({
-          statusCode: 400,
-          message: "Cannot delete the last curator",
-          timestamp: new Date().toISOString(),
-        });
-      }
-    }
-
-    const deleted = await storage.deleteUser(targetId);
-    if (!deleted) {
-      return res.status(404).json({
-        statusCode: 404,
-        message: "User not found",
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    res.json({ success: true });
-  } catch (error) {
-    next(error);
-  }
-});
-
       }
 
       const { email, password, name, role } = req.body;
@@ -1381,16 +1395,9 @@ if (req.file) {
   );
 
   app.delete("/api/garments/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    if (!requireAdmin(req, res)) return;
     try {
-      if (req.user!.role !== "CURATOR") {
-      return res.status(403).json({
-        statusCode: 403,
-        message: "Only curators can delete garments",
-        timestamp: new Date().toISOString(),
-      });
-    }
-
-    const deleted = await storage.deleteGarment(req.params.id);
+      const deleted = await storage.deleteGarment(req.params.id);
       if (!deleted) {
         return res.status(404).json({
           statusCode: 404,

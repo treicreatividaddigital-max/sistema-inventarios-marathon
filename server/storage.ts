@@ -33,9 +33,8 @@ export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
-  listUsers(): Promise<Array<Pick<User, "id" | "email" | "name" | "role" | "createdAt">>>;
+  getAllUsers(): Promise<User[]>;
   deleteUser(id: string): Promise<boolean>;
-  countUsersByRole(role: "ADMIN" | "CURATOR" | "USER"): Promise<number>;
 
   // Categories
   getAllCategories(): Promise<Category[]>;
@@ -128,31 +127,16 @@ export class DatabaseStorage implements IStorage {
   }
 
 
-  async listUsers(): Promise<Array<Pick<User, "id" | "email" | "name" | "role" | "createdAt">>> {
-    return await db
-      .select({
-        id: users.id,
-        email: users.email,
-        name: users.name,
-        role: users.role,
-        createdAt: users.createdAt,
-      })
-      .from(users)
-      .orderBy(desc(users.createdAt));
-  }
+async getAllUsers(): Promise<User[]> {
+  // Never return passwordHash to callers (routes should strip too)
+  return await db.select().from(users).orderBy(desc(users.createdAt));
+}
 
-  async deleteUser(id: string): Promise<boolean> {
-    const result = await db.delete(users).where(eq(users.id, id));
-    return result.rowCount !== null && result.rowCount > 0;
-  }
+async deleteUser(id: string): Promise<boolean> {
+  const result = await db.delete(users).where(eq(users.id, id));
+  return result.rowCount !== null && result.rowCount > 0;
+}
 
-  async countUsersByRole(role: "ADMIN" | "CURATOR" | "USER"): Promise<number> {
-    const [row] = await db
-      .select({ count: sql<number>`count(*)` })
-      .from(users)
-      .where(eq(users.role, role));
-    return Number(row?.count ?? 0);
-  }
 
   // Categories
   async getAllCategories(): Promise<Category[]> {

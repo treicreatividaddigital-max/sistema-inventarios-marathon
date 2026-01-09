@@ -1,13 +1,19 @@
-node_modules
-dist
-.DS_Store
-server/public
-vite.config.ts.*
-*.tar.gz
-# Ignore runtime uploads (photos)
+# Dependencies / build
+node_modules/
+dist/
+
+# Runtime uploads (Cloud Run local / dev)
 uploads/
 
-# backups
-*.bak.*
-# tools temporales
-tools/
+# Logs / temp
+*.log
+proxy.log
+
+# Local helpers / binaries
+cloud_sql_proxy
+
+# Editor / OS
+.DS_Store
+
+# Backup files
+*.bak

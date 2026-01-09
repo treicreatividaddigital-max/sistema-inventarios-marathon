@@ -17,3 +17,8 @@ cloud_sql_proxy
 
 # Backup files
 *.bak
+
+# Local scripts/helpers
+fix-roles-final.ts
+seed-users.ts
+tools/

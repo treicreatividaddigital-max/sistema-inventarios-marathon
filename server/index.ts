@@ -33,7 +33,17 @@ app.use((req, res, next) => {
     if (path.startsWith("/api")) {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
-        logLine += ` :: ${JSON.stringify(capturedJsonResponse)}`;
+        // Avoid leaking sensitive payloads (e.g., auth tokens) into logs
+        const safeBody =
+          path.startsWith("/api/auth")
+            ? undefined
+            : (typeof capturedJsonResponse === "object" && capturedJsonResponse !== null && !Array.isArray(capturedJsonResponse))
+                ? { ...(capturedJsonResponse as any), token: (capturedJsonResponse as any).token ? "[REDACTED]" : (capturedJsonResponse as any).token }
+                : capturedJsonResponse;
+
+        if (safeBody !== undefined) {
+          logLine += ` :: ${JSON.stringify(safeBody)}`;
+        }
       }
 
       if (logLine.length > 80) {

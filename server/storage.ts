@@ -29,7 +29,9 @@ import {
 } from "@shared/schema";
 
 export interface IStorage {
-  // Users
+  
+  getGarments(): Promise<Garment[]>;
+// Users
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
@@ -381,6 +383,12 @@ async getNextGarmentCode(prefix: string = "GAR-MAR-"): Promise<string> {
     }
 
     return await query;
+  }
+
+
+  async getGarments(): Promise<Garment[]> {
+    // Lista completa (para /api/garments)
+    return await db.select().from(garments).orderBy(desc(garments.createdAt));
   }
 
   async getGarment(id: string): Promise<Garment | undefined> {

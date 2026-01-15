@@ -351,7 +351,7 @@ export default function CuratorNewGarment() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {categories?.map((c: any) => (
+                        {(categories as any[] | undefined)?.map((c: any) => (
                           <SelectItem key={c.id} value={c.id}>
                             {c.name}
                           </SelectItem>
@@ -377,7 +377,7 @@ export default function CuratorNewGarment() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {garmentTypes?.map((t: any) => (
+                        {(garmentTypes as any[] | undefined)?.map((t: any) => (
                           <SelectItem key={t.id} value={t.id}>
                             {t.name}
                           </SelectItem>
@@ -403,7 +403,7 @@ export default function CuratorNewGarment() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {collections?.map((c: any) => (
+                        {(collections as any[] | undefined)?.map((c: any) => (
                           <SelectItem key={c.id} value={c.id}>
                             {c.name}
                           </SelectItem>
@@ -429,7 +429,7 @@ export default function CuratorNewGarment() {
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        {lots?.map((l: any) => (
+                        {(lots as any[] | undefined)?.map((l: any) => (
                           <SelectItem key={l.id} value={l.id}>
                             {l.name}
                           </SelectItem>
@@ -456,7 +456,7 @@ export default function CuratorNewGarment() {
                       </FormControl>
                       <SelectContent>
                         <SelectItem value="">No rack</SelectItem>
-                        {racks?.map((r: any) => (
+                        {(racks as any[] | undefined)?.map((r: any) => (
                           <SelectItem key={r.id} value={r.id}>
                             {r.code} - {r.name}
                           </SelectItem>

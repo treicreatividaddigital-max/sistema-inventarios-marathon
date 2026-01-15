@@ -44,7 +44,7 @@ export default function CuratorEditGarment() {
   const { toast } = useToast();
   const { user } = useAuth();
 
-  const canDeleteGarment = Boolean(user?.isMasterCurator);
+  const canDeleteGarment = Boolean(user?.role === "ADMIN");
 
   const [existingPhotoUrls, setExistingPhotoUrls] = useState<string[]>([]);
   const [newPhotos, setNewPhotos] = useState<PhotoItem[]>([]);
@@ -492,7 +492,7 @@ export default function CuratorEditGarment() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {categoriesQuery.data?.map((c: any) => (
+                          {(categoriesQuery.data as any[] | undefined)?.map((c: any) => (
                             <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -515,7 +515,7 @@ export default function CuratorEditGarment() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {garmentTypesQuery.data?.map((t: any) => (
+                          {(garmentTypesQuery.data as any[] | undefined)?.map((t: any) => (
                             <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -538,7 +538,7 @@ export default function CuratorEditGarment() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {collectionsQuery.data?.map((c: any) => (
+                          {(collectionsQuery.data as any[] | undefined)?.map((c: any) => (
                             <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -561,7 +561,7 @@ export default function CuratorEditGarment() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {lotsQuery.data?.map((l: any) => (
+                          {(lotsQuery.data as any[] | undefined)?.map((l: any) => (
                             <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
                           ))}
                         </SelectContent>
@@ -585,7 +585,7 @@ export default function CuratorEditGarment() {
                         </FormControl>
                         <SelectContent>
                           <SelectItem value="">No rack</SelectItem>
-                          {racksQuery.data?.map((r: any) => (
+                          {(racksQuery.data as any[] | undefined)?.map((r: any) => (
                             <SelectItem key={r.id} value={r.id}>{r.code} — {r.name}</SelectItem>
                           ))}
                         </SelectContent>

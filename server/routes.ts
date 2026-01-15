@@ -1173,7 +1173,7 @@ app.get("/api/garments/search", authMiddleware, async (req: Request, res: Respon
   try {
     const { query, status, categoryId, garmentTypeId, collectionId, lotId, rackId } = req.query as any;
     const garments = await storage.searchGarments({
-      query: typeof query === "string" ? query : undefined,
+      q: typeof query === "string" ? query : undefined,
       status: typeof status === "string" ? status : undefined,
       categoryId: typeof categoryId === "string" ? categoryId : undefined,
       garmentTypeId: typeof garmentTypeId === "string" ? garmentTypeId : undefined,
@@ -1205,7 +1205,7 @@ app.get("/api/garments/by-code/:code/qr", authMiddleware, async (req: Request, r
     // Generar (o re-generar) QR on-demand
     const baseUrl = process.env.PUBLIC_BASE_URL || `https://${req.get("host")}`;
     const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(garment.code)}`;
-    const qrDataUrl = await generateQRCodeDataUrl(garmentUrl);
+    const qrDataUrl = await generateQRCode(garmentUrl);
     res.json({ qrDataUrl, garmentUrl });
   } catch (error) {
     next(error);
@@ -1249,7 +1249,7 @@ app.post(
 
       const baseUrl = process.env.PUBLIC_BASE_URL || `https://${req.get("host")}`;
       const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(code)}`;
-      const qrUrl = await generateQRCodeDataUrl(garmentUrl);
+      const qrUrl = await generateQRCode(garmentUrl);
 
       // Archivos subidos en multipart
       const files = extractUploadedPhotos(req);

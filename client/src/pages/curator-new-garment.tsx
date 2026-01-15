@@ -1,30 +1,23 @@
-import { useState, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
+import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertGarmentSchema, type InsertGarment, type Category, type GarmentType, type Collection, type Lot, type Rack } from "@shared/schema";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, invalidateGarmentQueries } from "@/lib/queryClient";
-import { z } from "zod";
-import { ArrowLeft, ArrowRight, Check, Loader2, Upload, Camera } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { useLocation } from "wouter";
+import { apiRequest, getQueryFn, invalidateGarmentQueries } from "@/lib/queryClient";
+import { useToast } from "@/hooks/use-toast";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
 import {
   Form,
   FormControl,
-  FormDescription,
   FormField,
   FormItem,
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import {
   Select,
   SelectContent,
@@ -32,58 +25,59 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Progress } from "@/components/ui/progress";
-import { useToast } from "@/hooks/use-toast";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import { useAuth } from "@/lib/auth-context";
 
-// Extended schema for form validation
-const formSchema = insertGarmentSchema.extend({
-  code: z.string().min(3, "Code must be at least 3 characters"),
+// 3 pasos: datos base, ubicación, fotos
+const formSchema = z.object({
+  // El código se autogenera. El backend también lo genera si no se envía.
+  code: z.string().optional(),
   size: z.string().min(1, "Size is required"),
   color: z.string().min(1, "Color is required"),
   gender: z.enum(["MALE", "FEMALE", "UNISEX"]),
-  status: z.enum(["IN_STOCK", "IN_TRANSIT", "SOLD", "RESERVED", "DAMAGED"]),
-  categoryId: z.string().uuid("Must select a category"),
-  garmentTypeId: z.string().uuid("Must select a type"),
-  collectionId: z.string().uuid("Must select a collection"),
-  lotId: z.string().uuid("Must select a lot"),
-  photoUrl: z.string().optional(), // Photo is optional
-}).omit({ createdById: true, qrUrl: true });
+  status: z.enum(["IN_STOCK", "IN_TRANSIT", "SOLD", "RESERVED", "DAMAGED"]).default("IN_STOCK"),
+  categoryId: z.string().min(1, "Category is required"),
+  garmentTypeId: z.string().min(1, "Garment type is required"),
+  collectionId: z.string().min(1, "Collection is required"),
+  lotId: z.string().min(1, "Lot is required"),
+  rackId: z.string().optional(),
+  description: z.string().optional(),
+});
 
-type FormValues = z.infer<typeof formSchema>;
+type FormData = z.infer<typeof formSchema>;
 
-const STEPS = [
-  { id: 1, title: "Basic Info", description: "Product details" },
-  { id: 2, title: "Classification", description: "Category & type" },
-  { id: 3, title: "Location", description: "Collection & rack" },
-  { id: 4, title: "Photo", description: "Upload image" },
-];
+type PhotoItem = { file: File; previewUrl: string };
 
-export default function CuratorNewGarmentPage() {
-  const [currentStep, setCurrentStep] = useState(1);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
-  const cameraInputRef = useRef<HTMLInputElement | null>(null);
-  const triggerNativeCameraCapture = () => cameraInputRef.current?.click();
+export default function CuratorNewGarment() {
+  const { user } = useAuth();
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [, navigate] = useLocation();
 
-  // Load categories
-  const { data: categories = [], isLoading: categoriesLoading } = useQuery<Category[]>({
-    queryKey: ["/api/categories"],
-  });
+  // === Estado de fotos (máximo 4) ===
+  const [photos, setPhotos] = useState<PhotoItem[]>([]);
+  const [removeIdx, setRemoveIdx] = useState<number | null>(null);
 
-  // Load collections
-  const { data: collections = [], isLoading: collectionsLoading } = useQuery<Collection[]>({
-    queryKey: ["/api/collections"],
-  });
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const filesInputRef = useRef<HTMLInputElement | null>(null);
 
-  // Load racks
-  const { data: racks = [], isLoading: racksLoading } = useQuery<Rack[]>({
-    queryKey: ["/api/racks"],
-  });
+  // Limpieza de previews
+  useEffect(() => {
+    return () => {
+      photos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const form = useForm<FormValues>({
+  const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
       code: "",
@@ -95,650 +89,505 @@ export default function CuratorNewGarmentPage() {
       garmentTypeId: "",
       collectionId: "",
       lotId: "",
-      rackId: undefined,
-      photoUrl: undefined,
+      rackId: "",
+      description: "",
     },
   });
 
-  const progress = (currentStep / STEPS.length) * 100;
-
-  // Watch categoryId to load garment types
-  const selectedCategoryId = form.watch("categoryId");
-  const { data: garmentTypes = [] } = useQuery<GarmentType[]>({
-    queryKey: ["/api/garment-types/by-category", selectedCategoryId],
-    enabled: !!selectedCategoryId,
+  // 1) Traer el siguiente código automáticamente
+  const nextCodeQuery = useQuery<{ code: string }>({
+    queryKey: ["/api/garments/next-code"],
+    queryFn: getQueryFn({ on401: "throw" }),
   });
 
-  // Watch collectionId to load lots
-  const selectedCollectionId = form.watch("collectionId");
-  const { data: lots = [] } = useQuery<Lot[]>({
-    queryKey: ["/api/lots/by-collection", selectedCollectionId],
-    enabled: !!selectedCollectionId,
+  useEffect(() => {
+    const code = nextCodeQuery.data?.code;
+    if (!code) return;
+    const current = form.getValues("code");
+    if (!current) form.setValue("code", code);
+  }, [nextCodeQuery.data?.code]);
+
+  // 2) Datos para selects
+  const { data: categories } = useQuery({
+    queryKey: ["/api/categories"],
+    queryFn: getQueryFn({ on401: "throw" }),
   });
 
-  // Create garment mutation
-  const createGarmentMutation = useMutation({
-    mutationFn: async (data: FormValues) => {
-      const formData = new FormData();
+  const { data: garmentTypes } = useQuery({
+    queryKey: ["/api/garment-types"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
 
-      formData.append("code", data.code);
-      formData.append("size", data.size);
-      formData.append("color", data.color);
-      formData.append("gender", data.gender);
-      formData.append("status", data.status ?? "IN_STOCK");
-      formData.append("categoryId", data.categoryId);
-      formData.append("garmentTypeId", data.garmentTypeId);
-      formData.append("collectionId", data.collectionId);
+  const { data: collections } = useQuery({
+    queryKey: ["/api/collections"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
 
-      if (data.lotId) formData.append("lotId", data.lotId);
-      if (data.rackId) formData.append("rackId", data.rackId);
+  const { data: lots } = useQuery({
+    queryKey: ["/api/lots"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
 
-      // Si hay archivo, lo usamos. Si en el futuro quieres soportar URL manual, podrías manejarlo aquí.
-      if (photoFile) {
-        formData.append("photo", photoFile); // clave EXACTA "photo" para Multer
-      }
+  const { data: racks } = useQuery({
+    queryKey: ["/api/racks"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
 
-      // Usamos apiRequest, que ahora ya soporta FormData
-      return await apiRequest("POST", "/api/garments", formData);
-    },
-    onSuccess: () => {
-      toast({
-        title: "Garment created successfully",
-        description: "The garment has been added to inventory",
+  // --- Helpers fotos ---
+  function addFiles(newFiles: File[]) {
+    setPhotos((prev) => {
+      const remaining = 4 - prev.length;
+      if (remaining <= 0) return prev;
+
+      const toAdd = newFiles.slice(0, remaining).map((file) => ({
+        file,
+        previewUrl: URL.createObjectURL(file),
+      }));
+
+      return [...prev, ...toAdd];
+    });
+  }
+
+  function removePhoto(index: number) {
+    setPhotos((prev) => {
+      const item = prev[index];
+      if (item) URL.revokeObjectURL(item.previewUrl);
+      return prev.filter((_, i) => i !== index);
+    });
+  }
+
+  function onPickCamera() {
+    cameraInputRef.current?.click();
+  }
+
+  function onPickFiles() {
+    filesInputRef.current?.click();
+  }
+
+  const createMutation = useMutation({
+    mutationFn: async (data: FormData) => {
+      const fd = new window.FormData();
+
+      // Nota: el backend genera el code si viene vacío.
+      Object.entries(data).forEach(([key, value]) => {
+        if (value === undefined || value === null) return;
+        if (typeof value === "string" && value.trim() === "") return;
+        fd.append(key, String(value));
       });
-      invalidateGarmentQueries();
-      navigate("/curator");
+
+      // Subimos hasta 4 fotos como "photos".
+      photos.forEach((p) => fd.append("photos", p.file));
+
+      return apiRequest("POST", "/api/garments", fd);
     },
-    onError: (error: any) => {
-      // Show the real server error message
-      const errorMessage = error?.message || error?.error || "Unknown error occurred";
-      console.error("Error creating garment:", error);
+    onSuccess: async () => {
+      invalidateGarmentQueries();
+
       toast({
-        title: "Error creating garment",
-        description: errorMessage,
+        title: "Garment created",
+        description: "The garment has been created successfully.",
+      });
+
+      // Reset
+      form.reset();
+      // limpiar previews
+      setPhotos((prev) => {
+        prev.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+        return [];
+      });
+
+      // Refrescar el próximo código para la siguiente creación
+      await nextCodeQuery.refetch();
+
+      setLocation("/curator/garments");
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message,
         variant: "destructive",
       });
     },
   });
 
-  const nextStep = (e?: React.MouseEvent<HTMLButtonElement>) => {
-    e?.preventDefault();
-    e?.stopPropagation();
-    if (currentStep < STEPS.length) {
-      setCurrentStep(currentStep + 1);
-    }
-  };
-
-  const prevStep = (e?: React.MouseEvent<HTMLButtonElement>) => {
-    e?.preventDefault();
-    e?.stopPropagation();
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-    }
-  };
-
-  const onSubmit = (data: FormValues) => {
-    createGarmentMutation.mutate(data);
-  };
-
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Evitar fugas de memoria si el preview anterior era un blob: URL
-    if (photoPreview?.startsWith("blob:")) {
-      URL.revokeObjectURL(photoPreview);
-    }
-
-    // Guardamos el archivo real para enviarlo al backend
-    setPhotoFile(file);
-
-    // Usamos FileReader solo para mostrar el preview
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setPhotoPreview(reader.result as string);
-      // No necesitamos guardar el base64 en photoUrl, el backend usará el archivo
-      form.setValue("photoUrl", "");
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleCameraCapture = async () => {
-    try {
-      setIsCapturingPhoto(true);
-      triggerNativeCameraCapture();
-    } finally {
-      setIsCapturingPhoto(false);
-    }
-  };
-
+  // Solo curador puede crear
+  if (!user || user.role !== "CURATOR") {
+    return (
+      <div className="p-6">
+        <Card>
+          <CardHeader>
+            <CardTitle>Access Denied</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <p>You don't have permission to create garments.</p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto p-6">
-      <div className="flex items-center gap-4">
-        <Button type="button" variant="ghost" size="icon" onClick={() => navigate("/curator")} data-testid="button-back">
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-        <div>
-          <h1 className="text-3xl font-semibold">New Garment</h1>
-          <p className="text-muted-foreground mt-2">
-            Add a new item to inventory
-          </p>
-        </div>
-      </div>
-
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <p className="text-sm font-medium">
-            Step {currentStep} of {STEPS.length}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {STEPS[currentStep - 1].title}
-          </p>
-        </div>
-        <Progress value={progress} className="h-2" />
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        {STEPS.map((step) => (
-          <div
-            key={step.id}
-            className={`flex-1 min-w-[120px] p-3 rounded-lg border transition-colors ${
-              step.id === currentStep
-                ? "bg-primary/10 border-primary"
-                : step.id < currentStep
-                ? "bg-muted border-border"
-                : "bg-background border-border"
-            }`}
-          >
-            <div className="flex items-center gap-2 mb-1">
-              {step.id < currentStep ? (
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary">
-                  <Check className="h-3 w-3 text-primary-foreground" />
-                </div>
-              ) : (
-                <div
-                  className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-medium ${
-                    step.id === currentStep
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {step.id}
-                </div>
-              )}
-              <p className="text-sm font-medium">{step.title}</p>
-            </div>
-            <p className="text-xs text-muted-foreground ml-7">
-              {step.description}
-            </p>
-          </div>
-        ))}
-      </div>
-
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)}>
-          <Card>
-            <CardHeader>
-              <CardTitle>{STEPS[currentStep - 1].title}</CardTitle>
-              <CardDescription>
-                {STEPS[currentStep - 1].description}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {currentStep === 1 && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="code"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Garment Code</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="GAR-2024-001"
-                            data-testid="input-code"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          Unique identifier for this garment
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <div className="grid gap-6 sm:grid-cols-3">
-                    <FormField
-                      control={form.control}
-                      name="size"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Size</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            value={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-size">
-                                <SelectValue placeholder="Select size" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="XS">XS</SelectItem>
-                              <SelectItem value="S">S</SelectItem>
-                              <SelectItem value="M">M</SelectItem>
-                              <SelectItem value="L">L</SelectItem>
-                              <SelectItem value="XL">XL</SelectItem>
-                              <SelectItem value="XXL">XXL</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="color"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Color</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Navy Blue"
-                              data-testid="input-color"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="gender"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Gender</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            value={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-gender">
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="MALE">Male</SelectItem>
-                              <SelectItem value="FEMALE">Female</SelectItem>
-                              <SelectItem value="UNISEX">Unisex</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="status"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Status</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-status">
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="IN_STOCK">In Stock</SelectItem>
-                            <SelectItem value="IN_TRANSIT">In Transit</SelectItem>
-                            <SelectItem value="SOLD">Sold</SelectItem>
-                            <SelectItem value="RESERVED">Reserved</SelectItem>
-                            <SelectItem value="DAMAGED">Damaged</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              )}
-
-              {currentStep === 2 && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="categoryId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Category</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-category">
-                              <SelectValue placeholder="Select category" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {categoriesLoading ? (
-                              <SelectItem value="loading" disabled>Loading...</SelectItem>
-                            ) : categories.length === 0 ? (
-                              <SelectItem value="empty" disabled>No categories available</SelectItem>
-                            ) : (
-                              categories.map((cat) => (
-                                <SelectItem key={cat.id} value={cat.id}>
-                                  {cat.name}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="garmentTypeId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Garment Type</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={!selectedCategoryId}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-type">
-                              <SelectValue placeholder="Select type" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {!selectedCategoryId ? (
-                              <SelectItem value="disabled" disabled>First select category</SelectItem>
-                            ) : garmentTypes.length === 0 ? (
-                              <SelectItem value="empty" disabled>No types available</SelectItem>
-                            ) : (
-                              garmentTypes.map((type) => (
-                                <SelectItem key={type.id} value={type.id}>
-                                  {type.name}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              )}
-
-              {currentStep === 3 && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="collectionId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Collection</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-collection">
-                              <SelectValue placeholder="Select collection" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {collectionsLoading ? (
-                              <SelectItem value="loading" disabled>Loading...</SelectItem>
-                            ) : collections.length === 0 ? (
-                              <SelectItem value="empty" disabled>No collections available</SelectItem>
-                            ) : (
-                              collections.map((col) => (
-                                <SelectItem key={col.id} value={col.id}>
-                                  {col.name}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="lotId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Lot</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={!selectedCollectionId}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-lot">
-                              <SelectValue placeholder="Select lot" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {!selectedCollectionId ? (
-                              <SelectItem value="disabled" disabled>First select collection</SelectItem>
-                            ) : lots.length === 0 ? (
-                              <SelectItem value="empty" disabled>No lots available</SelectItem>
-                            ) : (
-                              lots.map((lot) => (
-                                <SelectItem key={lot.id} value={lot.id}>
-                                  {lot.name}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="rackId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Rack (Optional)</FormLabel>
-                        <Select
-                          onValueChange={(value) => {
-                            field.onChange(value === "none" ? undefined : value);
-                          }}
-                          value={field.value ?? "none"}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-rack">
-                              <SelectValue placeholder="No rack assigned" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="none">No rack</SelectItem>
-                            {racksLoading ? (
-                              <SelectItem value="loading" disabled>Loading...</SelectItem>
-                            ) : (
-                              racks.map((rack) => (
-                                <SelectItem key={rack.id} value={rack.id}>
-                                  {rack.name} {rack.zone ? `(${rack.zone})` : ""}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Assign to a storage location
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              )}
-
-              {currentStep === 4 && (
-                <div className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="photoUrl"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Product Photo (Optional)</FormLabel>
-                        <FormControl>
-                          <div className="space-y-4">
-                            {photoPreview ? (
-                              <div className="relative aspect-[3/4] max-w-sm mx-auto">
-                                <img
-                                  src={photoPreview}
-                                  alt="Preview"
-                                  className="w-full h-full object-cover rounded-lg"
-                                />
-                                <Button
-                                  type="button"
-                                  variant="secondary"
-                                  size="sm"
-                                  className="absolute top-2 right-2"
-                                  onClick={() => {
-                                    if (photoPreview?.startsWith("blob:")) {
-                                      URL.revokeObjectURL(photoPreview);
-                                    }
-                                    setPhotoPreview(null);
-                                    setPhotoFile(null);
-                                    form.setValue("photoUrl", undefined);
-                                  }}
-                                  data-testid="button-remove-photo"
-                                >
-                                  Remove
-                                </Button>
-                              </div>
-                            ) : (
-                              <div className="space-y-3">
-                                <label className="flex flex-col items-center justify-center w-full aspect-[3/4] max-w-sm mx-auto border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
-                                  <div className="flex flex-col items-center justify-center py-8">
-                                    <Upload className="h-12 w-12 text-muted-foreground mb-4" />
-                                    <p className="text-sm font-medium mb-1">
-                                      Click to upload
-                                    </p>
-                                    <p className="text-xs text-muted-foreground">
-                                      PNG, JPG up to 10MB
-                                    </p>
-                                  </div>
-                                  <input
-                                    type="file"
-                                    className="hidden"
-                                    accept="image/*"
-                                    onChange={handlePhotoChange}
-                                    data-testid="input-photo"
-                                  />
-                                </label>
-                                <input
-                                  ref={cameraInputRef}
-                                  type="file"
-                                  className="hidden"
-                                  accept="image/*"
-                                  capture="environment"
-                                  onChange={handlePhotoChange}
-                                  data-testid="input-camera"
-                                />
-                                <div className="flex justify-center">
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={handleCameraCapture}
-                                    disabled={isCapturingPhoto}
-                                    data-testid="button-camera"
-                                  >
-                                    {isCapturingPhoto ? (
-                                      <>
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        Opening camera...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Camera className="mr-2 h-4 w-4" />
-                                        Take Photo
-                                      </>
-                                    )}
-                                  </Button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </FormControl>
-                        <FormDescription>
-                          Optional: Upload or capture a photo of the garment
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="flex justify-between mt-6">
-            <Button
-              type="button"
-              variant="outline"
-              onClick={(e) => prevStep(e)}
-              disabled={currentStep === 1}
-              data-testid="button-previous"
+    <div className="p-6 max-w-2xl mx-auto">
+      <Card>
+        <CardHeader>
+          <CardTitle>New Garment</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Form {...form}>
+            <form
+              onSubmit={form.handleSubmit((data) => createMutation.mutate(data))}
+              className="space-y-6"
             >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Previous
-            </Button>
-
-            {currentStep < STEPS.length ? (
-              <Button
-                type="button"
-                onClick={(e) => nextStep(e)}
-                data-testid="button-next"
-              >
-                Next
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                disabled={createGarmentMutation.isPending}
-                data-testid="button-submit"
-              >
-                {createGarmentMutation.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Creating...
-                  </>
-                ) : (
-                  <>
-                    <Check className="h-4 w-4 mr-2" />
-                    Create Garment
-                  </>
+              {/* CODE (autogenerado) */}
+              <FormField
+                control={form.control}
+                name="code"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Garment Code (auto)</FormLabel>
+                    <FormControl>
+                      <Input
+                        {...field}
+                        disabled
+                        placeholder={nextCodeQuery.isLoading ? "Generating..." : ""}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
                 )}
-              </Button>
-            )}
-          </div>
-        </form>
-      </Form>
+              />
+
+              {/* SIZE */}
+              <FormField
+                control={form.control}
+                name="size"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Size</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="e.g. M" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* COLOR */}
+              <FormField
+                control={form.control}
+                name="color"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Color</FormLabel>
+                    <FormControl>
+                      <Input {...field} placeholder="e.g. Blue" />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* GENDER */}
+              <FormField
+                control={form.control}
+                name="gender"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Gender</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select gender" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="MALE">Male</SelectItem>
+                        <SelectItem value="FEMALE">Female</SelectItem>
+                        <SelectItem value="UNISEX">Unisex</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* STATUS */}
+              <FormField
+                control={form.control}
+                name="status"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Status</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select status" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="IN_STOCK">In Stock</SelectItem>
+                        <SelectItem value="IN_TRANSIT">In Transit</SelectItem>
+                        <SelectItem value="SOLD">Sold</SelectItem>
+                        <SelectItem value="RESERVED">Reserved</SelectItem>
+                        <SelectItem value="DAMAGED">Damaged</SelectItem>
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* CATEGORY */}
+              <FormField
+                control={form.control}
+                name="categoryId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Category</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select category" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {categories?.map((c: any) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* GARMENT TYPE */}
+              <FormField
+                control={form.control}
+                name="garmentTypeId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Garment Type</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select type" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {garmentTypes?.map((t: any) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* COLLECTION */}
+              <FormField
+                control={form.control}
+                name="collectionId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Collection</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select collection" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {collections?.map((c: any) => (
+                          <SelectItem key={c.id} value={c.id}>
+                            {c.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* LOT */}
+              <FormField
+                control={form.control}
+                name="lotId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Lot</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select lot" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        {lots?.map((l: any) => (
+                          <SelectItem key={l.id} value={l.id}>
+                            {l.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* RACK (opcional) */}
+              <FormField
+                control={form.control}
+                name="rackId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Rack (optional)</FormLabel>
+                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                      <FormControl>
+                        <SelectTrigger>
+                          <SelectValue placeholder="Select rack" />
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <SelectItem value="">No rack</SelectItem>
+                        {racks?.map((r: any) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.code} - {r.name}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* DESCRIPTION */}
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description (optional)</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} placeholder="Notes..." />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              {/* PHOTOS */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="text-sm font-medium">Photos</div>
+                  <div className="text-xs text-muted-foreground">{photos.length}/4</div>
+                </div>
+
+                {photos.length > 0 ? (
+                  <div className="grid grid-cols-2 gap-2">
+                    {photos.map((p, idx) => (
+                      <div key={idx} className="relative overflow-hidden rounded-md border">
+                        <img
+                          src={p.previewUrl}
+                          alt={`Photo ${idx + 1}`}
+                          className="h-32 w-full object-cover"
+                        />
+                        <Button
+                          type="button"
+                          variant="secondary"
+                          size="sm"
+                          className="absolute right-2 top-2"
+                          onClick={() => setRemoveIdx(idx)}
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="rounded-md border p-4 text-sm text-muted-foreground">
+                    Add up to 4 photos. You can use camera or upload files.
+                  </div>
+                )}
+
+                <div className="flex flex-wrap gap-2">
+                  <Button type="button" variant="outline" onClick={onPickCamera} disabled={photos.length >= 4}>
+                    Take photo
+                  </Button>
+                  <Button type="button" variant="outline" onClick={onPickFiles} disabled={photos.length >= 4}>
+                    Upload files
+                  </Button>
+                </div>
+
+                {/* Hidden inputs */}
+                <input
+                  ref={cameraInputRef}
+                  type="file"
+                  accept="image/*"
+                  capture="environment"
+                  className="hidden"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) addFiles([f]);
+                    e.currentTarget.value = "";
+                  }}
+                />
+                <input
+                  ref={filesInputRef}
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={(e) => {
+                    const list = Array.from(e.target.files || []);
+                    if (list.length) addFiles(list);
+                    e.currentTarget.value = "";
+                  }}
+                />
+              </div>
+
+              <div className="flex gap-2">
+                <Button type="submit" disabled={createMutation.isPending}>
+                  {createMutation.isPending ? "Creating..." : "Create"}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => setLocation("/curator/garments")}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </CardContent>
+      </Card>
+
+      {/* Confirmación de borrado de foto */}
+      <AlertDialog open={removeIdx !== null} onOpenChange={(open) => !open && setRemoveIdx(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove photo?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will remove the photo from this new garment form.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                if (removeIdx !== null) removePhoto(removeIdx);
+                setRemoveIdx(null);
+              }}
+            >
+              Remove
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

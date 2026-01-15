@@ -1,118 +1,101 @@
-import { useState, useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { useLocation, useParams } from "wouter";
+import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { insertGarmentSchema, type Category, type GarmentType, type Collection, type Lot, type Rack, type Garment } from "@shared/schema";
-import { useQuery, useMutation } from "@tanstack/react-query";
-import { apiRequest, invalidateGarmentQueries } from "@/lib/queryClient";
-import { z } from "zod";
-import {ArrowLeft, ArrowRight, Check, Loader2, Upload, Camera, X, Trash2} from "lucide-react";
-import { useLocation, useRoute } from "wouter";
-import { Button } from "@/components/ui/button";
-import { useAuth } from "@/lib/auth-context";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-  AlertDialogTrigger,
-} from "@/components/ui/alert-dialog";
-import {
-  Card,
-  CardContent,
-  CardDescription,
-  CardHeader,
-  CardTitle,
-} from "@/components/ui/card";
-import {
-  Form,
-  FormControl,
-  FormDescription,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
-import { Input } from "@/components/ui/input";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
-import { Progress } from "@/components/ui/progress";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { apiRequest, getQueryFn, invalidateGarmentQueries } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useAuth } from "@/lib/auth-context";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Textarea } from "@/components/ui/textarea";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import { Trash2, X } from "lucide-react";
 
-// Extended schema for form validation
-const formSchema = insertGarmentSchema.extend({
-  code: z.string().min(3, "Code must be at least 3 characters"),
+const formSchema = z.object({
+  // code no se puede cambiar (lo mostramos como readonly)
   size: z.string().min(1, "Size is required"),
   color: z.string().min(1, "Color is required"),
   gender: z.enum(["MALE", "FEMALE", "UNISEX"]),
   status: z.enum(["IN_STOCK", "IN_TRANSIT", "SOLD", "RESERVED", "DAMAGED"]),
-  categoryId: z.string().uuid("Must select a category"),
-  garmentTypeId: z.string().uuid("Must select a type"),
-  collectionId: z.string().uuid("Must select a collection"),
-  lotId: z.string().uuid("Must select a lot"),
-  photoUrl: z.string().optional().nullable(),
-}).omit({ createdById: true, qrUrl: true });
+  categoryId: z.string().min(1, "Category is required"),
+  garmentTypeId: z.string().min(1, "Type is required"),
+  collectionId: z.string().min(1, "Collection is required"),
+  lotId: z.string().min(1, "Lot is required"),
+  rackId: z.string().optional(),
+  description: z.string().optional(),
+});
 
 type FormValues = z.infer<typeof formSchema>;
 
-const STEPS = [
-  { id: 1, title: "Basic Info", description: "Product details" },
-  { id: 2, title: "Classification", description: "Category & type" },
-  { id: 3, title: "Location", description: "Collection & rack" },
-  { id: 4, title: "Photo", description: "Upload image" },
-];
+type PhotoItem = { file: File; previewUrl: string };
 
-export default function CuratorEditGarmentPage() {
-  const { user } = useAuth();
-  const canDelete = user?.role === "CURATOR";
+function makePreviewUrl(file: File) {
+  return URL.createObjectURL(file);
+}
 
-  const [, params] = useRoute("/curator/garment/:id/edit");
-  const garmentId = params?.id;
-  
-  const [currentStep, setCurrentStep] = useState(1);
-  const [photoPreview, setPhotoPreview] = useState<string | null>(null);
-  const [photoFile, setPhotoFile] = useState<File | null>(null);
-  const [isCapturingPhoto, setIsCapturingPhoto] = useState(false);
-  const cameraInputRef = useRef<HTMLInputElement | null>(null);
-  const triggerNativeCameraCapture = () => cameraInputRef.current?.click();
-  const [deletePhoto, setDeletePhoto] = useState(false);
+export default function CuratorEditGarment() {
+  const { id } = useParams<{ id: string }>();
+  const [, setLocation] = useLocation();
   const { toast } = useToast();
-  const [, navigate] = useLocation();
+  const { user } = useAuth();
 
-  // Load garment data
-  const { data: garment, isLoading: garmentLoading } = useQuery<Garment>({
-    queryKey: [`/api/garments/${garmentId}`],
-    enabled: !!garmentId,
+  const canDeleteGarment = Boolean(user?.isMasterCurator);
+
+  const [existingPhotoUrls, setExistingPhotoUrls] = useState<string[]>([]);
+  const [newPhotos, setNewPhotos] = useState<PhotoItem[]>([]);
+
+  const [confirmState, setConfirmState] = useState<
+    | { open: false }
+    | { open: true; kind: "remove-existing"; index: number }
+    | { open: true; kind: "remove-new"; index: number }
+    | { open: true; kind: "clear-all" }
+    | { open: true; kind: "delete-garment" }
+  >({ open: false });
+
+  const cameraInputRef = useRef<HTMLInputElement | null>(null);
+  const uploadInputRef = useRef<HTMLInputElement | null>(null);
+
+  const garmentQuery = useQuery({
+    queryKey: ["/api/garments", id],
+    queryFn: getQueryFn({ on401: "throw" }),
+    enabled: Boolean(id),
   });
 
-  // Load categories
-  const { data: categories = [], isLoading: categoriesLoading } = useQuery<Category[]>({
+  const categoriesQuery = useQuery({
     queryKey: ["/api/categories"],
+    queryFn: getQueryFn({ on401: "throw" }),
   });
 
-  // Load collections
-  const { data: collections = [], isLoading: collectionsLoading } = useQuery<Collection[]>({
+  const garmentTypesQuery = useQuery({
+    queryKey: ["/api/garment-types"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+
+  const collectionsQuery = useQuery({
     queryKey: ["/api/collections"],
+    queryFn: getQueryFn({ on401: "throw" }),
   });
 
-  // Load racks
-  const { data: racks = [], isLoading: racksLoading } = useQuery<Rack[]>({
-    queryKey: ["/api/racks"],
+  const lotsQuery = useQuery({
+    queryKey: ["/api/lots"],
+    queryFn: getQueryFn({ on401: "throw" }),
   });
+
+  const racksQuery = useQuery({
+    queryKey: ["/api/racks"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+
+  const garment = garmentQuery.data as any;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      code: "",
       size: "",
       color: "",
       gender: "UNISEX",
@@ -121,782 +104,543 @@ export default function CuratorEditGarmentPage() {
       garmentTypeId: "",
       collectionId: "",
       lotId: "",
-      rackId: undefined,
-      photoUrl: undefined,
+      rackId: "",
+      description: "",
     },
   });
 
-  // Update form when garment data loads
+  // Sincronizamos el form y las fotos al cargar la prenda
   useEffect(() => {
-    if (garment) {
-      form.reset({
-        code: garment.code,
-        size: garment.size,
-        color: garment.color,
-        gender: garment.gender,
-        status: garment.status,
-        categoryId: garment.categoryId,
-        garmentTypeId: garment.garmentTypeId,
-        collectionId: garment.collectionId,
-        lotId: garment.lotId,
-        rackId: garment.rackId ?? undefined,
-        photoUrl: garment.photoUrl ?? undefined,
-      });
-      
-      // Set existing photo preview
-      if (garment.photoUrl) {
-        setPhotoPreview(garment.photoUrl);
-      }
-    }
+    if (!garment) return;
+
+    form.reset({
+      size: garment.size || "",
+      color: garment.color || "",
+      gender: garment.gender || "UNISEX",
+      status: garment.status || "IN_STOCK",
+      categoryId: garment.categoryId || "",
+      garmentTypeId: garment.garmentTypeId || "",
+      collectionId: garment.collectionId || "",
+      lotId: garment.lotId || "",
+      rackId: garment.rackId || "",
+      description: garment.description || "",
+    });
+
+    // Preferimos photoUrls; si por compatibilidad sólo viene photoUrl, lo convertimos.
+    const urls = Array.isArray(garment.photoUrls)
+      ? garment.photoUrls
+      : garment.photoUrl
+        ? [garment.photoUrl]
+        : [];
+    setExistingPhotoUrls(urls.slice(0, 4));
   }, [garment, form]);
 
-  const progress = (currentStep / STEPS.length) * 100;
+  const remainingSlots = 4 - existingPhotoUrls.length - newPhotos.length;
 
-  // Watch categoryId to load garment types
-  const selectedCategoryId = form.watch("categoryId");
-  const { data: garmentTypes = [] } = useQuery<GarmentType[]>({
-    queryKey: ["/api/garment-types/by-category", selectedCategoryId],
-    enabled: !!selectedCategoryId,
-  });
+  const addFiles = (files: FileList | File[]) => {
+    const list = Array.from(files);
+    if (list.length === 0) return;
 
-  // Watch collectionId to load lots
-  const selectedCollectionId = form.watch("collectionId");
-  const { data: lots = [] } = useQuery<Lot[]>({
-    queryKey: ["/api/lots/by-collection", selectedCollectionId],
-    enabled: !!selectedCollectionId,
-  });
+    if (remainingSlots <= 0) {
+      toast({ title: "Max 4 photos", description: "Remove a photo to add a new one." });
+      return;
+    }
 
-  // Update garment mutation
-  const updateGarmentMutation = useMutation({
-    mutationFn: async (data: FormValues) => {
-      const formData = new FormData();
+    const toAdd = list.slice(0, remainingSlots).map((file) => ({
+      file,
+      previewUrl: makePreviewUrl(file),
+    }));
 
-      formData.append("code", data.code);
-      formData.append("size", data.size);
-      formData.append("color", data.color);
-      formData.append("gender", data.gender);
-      formData.append("status", data.status ?? "IN_STOCK");
-      formData.append("categoryId", data.categoryId);
-      formData.append("garmentTypeId", data.garmentTypeId);
-      formData.append("collectionId", data.collectionId);
+    setNewPhotos((prev) => [...prev, ...toAdd]);
 
-      if (data.lotId) formData.append("lotId", data.lotId);
-      if (data.rackId) formData.append("rackId", data.rackId);
+    if (list.length > remainingSlots) {
+      toast({ title: "Some photos were skipped", description: "You can only have 4 photos per garment." });
+    }
+  };
 
-      // Handle photo logic
-      if (deletePhoto) {
-        // Delete photo by setting to null
-        formData.append("photoUrl", "");
-      } else if (photoFile) {
-        // Upload new photo file
-        formData.append("photo", photoFile);
-      }
-      // If neither deletePhoto nor photoFile, don't touch photoUrl (preserve existing)
+  // Limpieza de previews cuando removemos fotos nuevas
+  useEffect(() => {
+    return () => {
+      newPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-      return await apiRequest("PATCH", `/api/garments/${garmentId}`, formData);
-    },
-    onSuccess: (updated: any) => {
-      toast({
-        title: "Garment updated successfully",
-        description: "The garment has been updated",
-      });
-      invalidateGarmentQueries();
-      const nextCode = updated?.code ?? garment?.code;
-      navigate(`/garment/${encodeURIComponent(nextCode)}`);
-    },
-    onError: (error: any) => {
-      const errorMessage = error?.message || error?.error || "Unknown error occurred";
-      console.error("Error updating garment:", error);
-      toast({
-        title: "Error updating garment",
-        description: errorMessage,
-        variant: "destructive",
-      });
-    },
-  });
+  const updateMutation = useMutation({
+    mutationFn: async (values: FormValues) => {
+      const fd = new FormData();
 
-  const deleteGarmentMutation = useMutation({
-    mutationFn: async () => {
-      if (!garmentId) throw new Error("Missing garment id");
-      return await apiRequest("DELETE", `/api/garments/${garmentId}`);
+      // Campos de formulario
+      fd.append("size", values.size);
+      fd.append("color", values.color);
+      fd.append("gender", values.gender);
+      fd.append("status", values.status);
+      fd.append("categoryId", values.categoryId);
+      fd.append("garmentTypeId", values.garmentTypeId);
+      fd.append("collectionId", values.collectionId);
+      fd.append("lotId", values.lotId);
+      if (values.rackId) fd.append("rackId", values.rackId);
+      if (values.description) fd.append("description", values.description);
+
+      // Lista actual de URLs que queremos conservar.
+      // Nota: en esta opción A NO borramos físicamente del storage (GCS o disco).
+      fd.append("photoUrls", JSON.stringify(existingPhotoUrls));
+
+      // Nuevos archivos
+      newPhotos.forEach((p) => fd.append("photos", p.file));
+
+      const res = await apiRequest("PATCH", `/api/garments/${id}`, fd);
+      return res.json();
     },
     onSuccess: () => {
-      toast({
-        title: "Garment deleted",
-        description: "The garment has been deleted successfully",
-      });
       invalidateGarmentQueries();
-      navigate("/curator");
+      toast({ title: "Saved", description: "Garment updated" });
+      // Luego de guardar, limpiamos los nuevos y recargamos desde server
+      newPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+      setNewPhotos([]);
+      garmentQuery.refetch();
     },
-    onError: (error: any) => {
-      const errorMessage = error?.message || error?.error || "Unknown error occurred";
-      console.error("Error deleting garment:", error);
-      toast({
-        title: "Error deleting garment",
-        description: errorMessage,
-        variant: "destructive",
-      });
+    onError: (err: any) => {
+      toast({ title: "Update failed", description: err?.message || "Unknown error", variant: "destructive" });
     },
   });
 
-  const nextStep = (e?: React.MouseEvent<HTMLButtonElement>) => {
-    e?.preventDefault();
-    e?.stopPropagation();
-    if (currentStep < STEPS.length) {
-      setCurrentStep(currentStep + 1);
+  const quickSavePhotosMutation = useMutation({
+    // Persistimos cambios de fotos existentes (remove / clear) inmediatamente
+    mutationFn: async (urls: string[]) => {
+      const res = await apiRequest("PATCH", `/api/garments/${id}`, {
+        photoUrls: urls,
+      });
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidateGarmentQueries();
+      garmentQuery.refetch();
+      toast({ title: "Photos updated" });
+    },
+    onError: (err: any) => {
+      toast({ title: "Photo update failed", description: err?.message || "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const deleteMutation = useMutation({
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/garments/${id}`);
+      return res.json();
+    },
+    onSuccess: () => {
+      invalidateGarmentQueries();
+      toast({ title: "Deleted", description: "Garment deleted" });
+      setLocation("/curator/garments");
+    },
+    onError: (err: any) => {
+      toast({ title: "Delete failed", description: err?.message || "Unknown error", variant: "destructive" });
+    },
+  });
+
+  const combinedPreviews = useMemo(() => {
+    const existing = existingPhotoUrls.map((url) => ({ kind: "existing" as const, url }));
+    const pending = newPhotos.map((p) => ({ kind: "new" as const, url: p.previewUrl }));
+    return [...existing, ...pending].slice(0, 4);
+  }, [existingPhotoUrls, newPhotos]);
+
+  const openRemoveExisting = (index: number) => setConfirmState({ open: true, kind: "remove-existing", index });
+  const openRemoveNew = (index: number) => setConfirmState({ open: true, kind: "remove-new", index });
+  const openClearAll = () => setConfirmState({ open: true, kind: "clear-all" });
+  const openDeleteGarment = () => setConfirmState({ open: true, kind: "delete-garment" });
+
+  const handleConfirm = async () => {
+    if (!confirmState.open) return;
+
+    if (confirmState.kind === "remove-existing") {
+      const idx = confirmState.index;
+      const next = existingPhotoUrls.filter((_, i) => i !== idx);
+      setExistingPhotoUrls(next);
+      await quickSavePhotosMutation.mutateAsync(next);
     }
-  };
 
-  const prevStep = (e?: React.MouseEvent<HTMLButtonElement>) => {
-    e?.preventDefault();
-    e?.stopPropagation();
-    if (currentStep > 1) {
-      setCurrentStep(currentStep - 1);
-    }
-  };
-
-  const onSubmit = (data: FormValues) => {
-    updateGarmentMutation.mutate(data);
-  };
-
-  const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    // Evitar fugas de memoria si el preview anterior era un blob: URL
-    if (photoPreview?.startsWith("blob:")) {
-      URL.revokeObjectURL(photoPreview);
+    if (confirmState.kind === "remove-new") {
+      const idx = confirmState.index;
+      setNewPhotos((prev) => {
+        const next = prev.filter((_, i) => i !== idx);
+        // revoke preview
+        const removed = prev[idx];
+        if (removed) URL.revokeObjectURL(removed.previewUrl);
+        return next;
+      });
     }
 
-    setPhotoFile(file);
-    setDeletePhoto(false);
-
-    const reader = new FileReader();
-    reader.onloadend = () => {
-      setPhotoPreview(reader.result as string);
-      form.setValue("photoUrl", "");
-    };
-    reader.readAsDataURL(file);
-  };
-
-  const handleCameraCapture = async () => {
-    try {
-      setIsCapturingPhoto(true);
-      triggerNativeCameraCapture();
-    } finally {
-      setIsCapturingPhoto(false);
+    if (confirmState.kind === "clear-all") {
+      // Limpia URLs existentes (persistente) y fotos nuevas (local)
+      setExistingPhotoUrls([]);
+      newPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+      setNewPhotos([]);
+      await quickSavePhotosMutation.mutateAsync([]);
     }
-  };
 
-
-  const handleRemovePhoto = () => {
-    if (photoPreview?.startsWith("blob:")) {
-      URL.revokeObjectURL(photoPreview);
+    if (confirmState.kind === "delete-garment") {
+      await deleteMutation.mutateAsync();
     }
-    setPhotoPreview(null);
-    setPhotoFile(null);
-    setDeletePhoto(true);
-    form.setValue("photoUrl", null);
+
+    setConfirmState({ open: false });
   };
 
-  if (garmentLoading) {
-    return (
-      <div className="space-y-6 max-w-3xl mx-auto p-6">
-        <div className="flex items-center gap-4">
-          <Skeleton className="h-10 w-10" />
-          <div className="space-y-2">
-            <Skeleton className="h-8 w-48" />
-            <Skeleton className="h-4 w-64" />
-          </div>
-        </div>
-        <Skeleton className="h-32 w-full" />
-      </div>
-    );
-  }
-
-  if (!garment) {
-    return (
-      <div className="space-y-6 max-w-3xl mx-auto p-6">
-        <div className="flex items-center gap-4">
-          <Button type="button" variant="ghost" size="icon" onClick={() => navigate("/curator")} data-testid="button-back">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-          <div>
-            <h1 className="text-3xl font-semibold">Garment Not Found</h1>
-            <p className="text-muted-foreground mt-2">
-              The garment you're looking for doesn't exist
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
+  if (garmentQuery.isLoading) return <div className="p-6">Loading...</div>;
+  if (garmentQuery.error) return <div className="p-6">Failed to load garment</div>;
+  if (!garment) return <div className="p-6">Garment not found</div>;
 
   return (
-    <div className="space-y-6 max-w-3xl mx-auto p-6">
-      <div className="flex items-center gap-4">
-        <Button type="button" variant="ghost" size="icon" onClick={() => navigate(`/garment/${garment.code}`)} data-testid="button-back">
-          <ArrowLeft className="h-5 w-5" />
-        </Button>
-
-        <div className="flex-1">
-          <h1 className="text-3xl font-semibold">Edit Garment</h1>
-          <p className="text-muted-foreground mt-2">
-            Update garment information for {garment.code}
-          </p>
+    <div className="p-6 space-y-6">
+      <div className="flex items-center justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold">Edit garment</h1>
+          <p className="text-sm text-muted-foreground">Code: <span className="font-mono">{garment.code}</span></p>
         </div>
 
-        {canDelete && (
-
-
-        <AlertDialog>
-          <AlertDialogTrigger asChild>
-            <Button
-              type="button"
-              variant="destructive"
-              disabled={deleteGarmentMutation.isPending}
-              data-testid="button-delete-garment"
-            >
-              {deleteGarmentMutation.isPending ? (
-                <Loader2 className="h-4 w-4 mr-2 animate-spin" />
-              ) : (
-                <Trash2 className="h-4 w-4 mr-2" />
-              )}
-              Delete
-            </Button>
-          </AlertDialogTrigger>
-          <AlertDialogContent>
-            <AlertDialogHeader>
-              <AlertDialogTitle>Delete this garment?</AlertDialogTitle>
-              <AlertDialogDescription>
-                This action cannot be undone. This will permanently delete the garment <span className="font-mono">{garment.code}</span>.
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogCancel>Cancel</AlertDialogCancel>
-              <AlertDialogAction
-                className="bg-destructive text-destructive-foreground border border-destructive-border"
-                onClick={() => deleteGarmentMutation.mutate()}
-              >
-                Delete
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
-
-
+        {canDeleteGarment && (
+          <Button variant="destructive" onClick={openDeleteGarment}>
+            <Trash2 className="w-4 h-4 mr-2" /> Delete
+          </Button>
         )}
       </div>
 
-      <div className="space-y-2">
-        <div className="flex justify-between items-center">
-          <p className="text-sm font-medium">
-            Step {currentStep} of {STEPS.length}
-          </p>
-          <p className="text-sm text-muted-foreground">
-            {STEPS[currentStep - 1].title}
-          </p>
-        </div>
-        <Progress value={progress} className="h-2" />
-      </div>
-
-      <div className="flex gap-2 overflow-x-auto pb-2">
-        {STEPS.map((step) => (
-          <div
-            key={step.id}
-            className={`flex-1 min-w-[120px] p-3 rounded-lg border transition-colors ${
-              step.id === currentStep
-                ? "bg-primary/10 border-primary"
-                : step.id < currentStep
-                ? "bg-muted border-border"
-                : "bg-background border-border"
-            }`}
-          >
-            <div className="flex items-center gap-2 mb-1">
-              {step.id < currentStep ? (
-                <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary">
-                  <Check className="h-3 w-3 text-primary-foreground" />
-                </div>
-              ) : (
-                <div
-                  className={`flex h-5 w-5 items-center justify-center rounded-full text-xs font-medium ${
-                    step.id === currentStep
-                      ? "bg-primary text-primary-foreground"
-                      : "bg-muted text-muted-foreground"
-                  }`}
-                >
-                  {step.id}
-                </div>
-              )}
-              <p className="text-sm font-medium">{step.title}</p>
+      <Card>
+        <CardHeader>
+          <CardTitle>Photos (max 4)</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center justify-between">
+            <div className="text-sm text-muted-foreground">
+              {existingPhotoUrls.length + newPhotos.length} / 4
             </div>
-            <p className="text-xs text-muted-foreground ml-7">
-              {step.description}
-            </p>
+            <Button variant="outline" onClick={openClearAll} disabled={(existingPhotoUrls.length + newPhotos.length) === 0}>
+              Clear all
+            </Button>
           </div>
-        ))}
-      </div>
 
-      <Form {...form}>
-        <form onSubmit={form.handleSubmit(onSubmit)}>
-          <Card>
-            <CardHeader>
-              <CardTitle>{STEPS[currentStep - 1].title}</CardTitle>
-              <CardDescription>
-                {STEPS[currentStep - 1].description}
-              </CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {currentStep === 1 && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="code"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Garment Code</FormLabel>
-                        <FormControl>
-                          <Input
-                            placeholder="GAR-2024-001"
-                            data-testid="input-code"
-                            {...field}
-                          />
-                        </FormControl>
-                        <FormDescription>
-                          Unique identifier for this garment
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+          <div className="grid grid-cols-2 gap-2">
+            {combinedPreviews.map((p, idx) => (
+              <div key={`${p.kind}-${p.url}`} className="relative rounded-md overflow-hidden border bg-muted">
+                <img src={p.url} alt={`photo ${idx + 1}`} className="w-full h-40 object-cover" />
+                <Button
+                  size="icon"
+                  variant="secondary"
+                  className="absolute top-2 right-2"
+                  onClick={() => {
+                    if (p.kind === "existing") {
+                      const existingIdx = idx; // existing URLs are first in combined list
+                      openRemoveExisting(existingIdx);
+                    } else {
+                      const newIdx = idx - existingPhotoUrls.length;
+                      openRemoveNew(newIdx);
+                    }
+                  }}
+                >
+                  <X className="w-4 h-4" />
+                </Button>
+              </div>
+            ))}
 
-                  <div className="grid gap-6 sm:grid-cols-3">
-                    <FormField
-                      control={form.control}
-                      name="size"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Size</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            value={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-size">
-                                <SelectValue placeholder="Select size" />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="XS">XS</SelectItem>
-                              <SelectItem value="S">S</SelectItem>
-                              <SelectItem value="M">M</SelectItem>
-                              <SelectItem value="L">L</SelectItem>
-                              <SelectItem value="XL">XL</SelectItem>
-                              <SelectItem value="XXL">XXL</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+            {/* placeholders para completar grid 2x2 */}
+            {Array.from({ length: Math.max(0, 4 - combinedPreviews.length) }).map((_, i) => (
+              <div key={`empty-${i}`} className="rounded-md border border-dashed h-40 bg-muted/30" />
+            ))}
+          </div>
 
-                    <FormField
-                      control={form.control}
-                      name="color"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Color</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Navy Blue"
-                              data-testid="input-color"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="gender"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Gender</FormLabel>
-                          <Select
-                            onValueChange={field.onChange}
-                            value={field.value}
-                          >
-                            <FormControl>
-                              <SelectTrigger data-testid="select-gender">
-                                <SelectValue />
-                              </SelectTrigger>
-                            </FormControl>
-                            <SelectContent>
-                              <SelectItem value="MALE">Male</SelectItem>
-                              <SelectItem value="FEMALE">Female</SelectItem>
-                              <SelectItem value="UNISEX">Unisex</SelectItem>
-                            </SelectContent>
-                          </Select>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-
-                  <FormField
-                    control={form.control}
-                    name="status"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Status</FormLabel>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-status">
-                              <SelectValue />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="IN_STOCK">In Stock</SelectItem>
-                            <SelectItem value="IN_TRANSIT">In Transit</SelectItem>
-                            <SelectItem value="SOLD">Sold</SelectItem>
-                            <SelectItem value="RESERVED">Reserved</SelectItem>
-                            <SelectItem value="DAMAGED">Damaged</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              )}
-
-              {currentStep === 2 && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="categoryId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Category</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-category">
-                              <SelectValue placeholder="Select category" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {categoriesLoading ? (
-                              <SelectItem value="loading" disabled>Loading...</SelectItem>
-                            ) : categories.length === 0 ? (
-                              <SelectItem value="empty" disabled>No categories available</SelectItem>
-                            ) : (
-                              categories.map((cat) => (
-                                <SelectItem key={cat.id} value={cat.id}>
-                                  {cat.name}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="garmentTypeId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Garment Type</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={!selectedCategoryId}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-type">
-                              <SelectValue placeholder="Select type" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {!selectedCategoryId ? (
-                              <SelectItem value="disabled" disabled>First select category</SelectItem>
-                            ) : garmentTypes.length === 0 ? (
-                              <SelectItem value="empty" disabled>No types available</SelectItem>
-                            ) : (
-                              garmentTypes.map((type) => (
-                                <SelectItem key={type.id} value={type.id}>
-                                  {type.name}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              )}
-
-              {currentStep === 3 && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="collectionId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Collection</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-collection">
-                              <SelectValue placeholder="Select collection" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {collectionsLoading ? (
-                              <SelectItem value="loading" disabled>Loading...</SelectItem>
-                            ) : collections.length === 0 ? (
-                              <SelectItem value="empty" disabled>No collections available</SelectItem>
-                            ) : (
-                              collections.map((col) => (
-                                <SelectItem key={col.id} value={col.id}>
-                                  {col.name}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="lotId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Lot</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                          disabled={!selectedCollectionId}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-lot">
-                              <SelectValue placeholder="Select lot" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {!selectedCollectionId ? (
-                              <SelectItem value="disabled" disabled>First select collection</SelectItem>
-                            ) : lots.length === 0 ? (
-                              <SelectItem value="empty" disabled>No lots available</SelectItem>
-                            ) : (
-                              lots.map((lot) => (
-                                <SelectItem key={lot.id} value={lot.id}>
-                                  {lot.name}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="rackId"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Rack (Optional)</FormLabel>
-                        <Select
-                          onValueChange={(value) => {
-                            field.onChange(value === "none" ? undefined : value);
-                          }}
-                          value={field.value ?? "none"}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-rack">
-                              <SelectValue placeholder="No rack assigned" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="none">No rack</SelectItem>
-                            {racksLoading ? (
-                              <SelectItem value="loading" disabled>Loading...</SelectItem>
-                            ) : (
-                              racks.map((rack) => (
-                                <SelectItem key={rack.id} value={rack.id}>
-                                  {rack.name} {rack.zone ? `(${rack.zone})` : ""}
-                                </SelectItem>
-                              ))
-                            )}
-                          </SelectContent>
-                        </Select>
-                        <FormDescription>
-                          Assign to a storage location
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </>
-              )}
-
-              {currentStep === 4 && (
-                <div className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="photoUrl"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Product Photo (Optional)</FormLabel>
-                        <FormControl>
-                          <div className="space-y-4">
-                            {photoPreview ? (
-                              <div className="relative aspect-[3/4] max-w-sm mx-auto">
-                                <img
-                                  src={photoPreview}
-                                  alt="Preview"
-                                  className="w-full h-full object-cover rounded-lg"
-                                />
-                                <div className="absolute top-2 right-2 flex gap-2">
-                                  <Button
-                                    type="button"
-                                    variant="secondary"
-                                    size="sm"
-                                    onClick={handleRemovePhoto}
-                                    data-testid="button-remove-photo"
-                                  >
-                                    <X className="h-4 w-4 mr-1" />
-                                    Remove
-                                  </Button>
-                                </div>
-                              </div>
-                            ) : (
-                              <div className="space-y-3">
-                                <label className="flex flex-col items-center justify-center w-full aspect-[3/4] max-w-sm mx-auto border-2 border-dashed rounded-lg cursor-pointer hover:bg-muted/50 transition-colors">
-                                  <div className="flex flex-col items-center justify-center py-8">
-                                    <Upload className="h-12 w-12 text-muted-foreground mb-4" />
-                                    <p className="text-sm font-medium mb-1">
-                                      Click to upload
-                                    </p>
-                                    <p className="text-xs text-muted-foreground">
-                                      PNG, JPG up to 10MB
-                                    </p>
-                                  </div>
-                                  <input
-                                    type="file"
-                                    className="hidden"
-                                    accept="image/*"
-                                    onChange={handlePhotoChange}
-                                    data-testid="input-photo"
-                                  />
-                                </label>
-                                <input
-                                  ref={cameraInputRef}
-                                  type="file"
-                                  className="hidden"
-                                  accept="image/*"
-                                  capture="environment"
-                                  onChange={handlePhotoChange}
-                                  data-testid="input-camera"
-                                />
-                                <div className="flex justify-center">
-                                  <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={handleCameraCapture}
-                                    disabled={isCapturingPhoto}
-                                    data-testid="button-camera"
-                                  >
-                                    {isCapturingPhoto ? (
-                                      <>
-                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                                        Opening camera...
-                                      </>
-                                    ) : (
-                                      <>
-                                        <Camera className="mr-2 h-4 w-4" />
-                                        Take Photo
-                                      </>
-                                    )}
-                                  </Button>
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </FormControl>
-                        <FormDescription>
-                          {garment.photoUrl && !deletePhoto && !photoFile
-                            ? "Current photo is shown above. You can replace or remove it."
-                            : "Optional: Upload or capture a photo of the garment"}
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                </div>
-              )}
-            </CardContent>
-          </Card>
-
-          <div className="flex justify-between mt-6">
+          <div className="flex gap-2">
             <Button
               type="button"
               variant="outline"
-              onClick={(e) => prevStep(e)}
-              disabled={currentStep === 1}
-              data-testid="button-previous"
+              onClick={() => cameraInputRef.current?.click()}
+              disabled={remainingSlots <= 0}
             >
-              <ArrowLeft className="h-4 w-4 mr-2" />
-              Previous
+              Take photo
             </Button>
-
-            {currentStep < STEPS.length ? (
-              <Button
-                type="button"
-                onClick={(e) => nextStep(e)}
-                data-testid="button-next"
-              >
-                Next
-                <ArrowRight className="h-4 w-4 ml-2" />
-              </Button>
-            ) : (
-              <Button
-                type="submit"
-                disabled={updateGarmentMutation.isPending}
-                data-testid="button-submit"
-              >
-                {updateGarmentMutation.isPending ? (
-                  <>
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                    Updating...
-                  </>
-                ) : (
-                  <>
-                    <Check className="h-4 w-4 mr-2" />
-                    Update Garment
-                  </>
-                )}
-              </Button>
-            )}
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => uploadInputRef.current?.click()}
+              disabled={remainingSlots <= 0}
+            >
+              Upload files
+            </Button>
           </div>
-        </form>
-      </Form>
+
+          <input
+            ref={cameraInputRef}
+            type="file"
+            accept="image/*"
+            capture="environment"
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files) addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+
+          <input
+            ref={uploadInputRef}
+            type="file"
+            accept="image/*"
+            multiple
+            className="hidden"
+            onChange={(e) => {
+              if (e.target.files) addFiles(e.target.files);
+              e.target.value = "";
+            }}
+          />
+
+          <p className="text-xs text-muted-foreground">
+            Notes: In QA/local we can store in disk. In production, backend can store in Google Cloud Storage (GCS) when GCS_BUCKET is set.
+          </p>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Details</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <Form {...form}>
+            <form onSubmit={form.handleSubmit((values) => updateMutation.mutate(values))} className="space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="size"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Size</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="e.g. M" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="color"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Color</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="e.g. Blue" />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="gender"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Gender</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select gender" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="MALE">Male</SelectItem>
+                          <SelectItem value="FEMALE">Female</SelectItem>
+                          <SelectItem value="UNISEX">Unisex</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="status"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Status</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select status" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="IN_STOCK">In stock</SelectItem>
+                          <SelectItem value="IN_TRANSIT">In transit</SelectItem>
+                          <SelectItem value="SOLD">Sold</SelectItem>
+                          <SelectItem value="RESERVED">Reserved</SelectItem>
+                          <SelectItem value="DAMAGED">Damaged</SelectItem>
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="categoryId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Category</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select category" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {categoriesQuery.data?.map((c: any) => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="garmentTypeId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Type</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select type" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {garmentTypesQuery.data?.map((t: any) => (
+                            <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="collectionId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Collection</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select collection" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {collectionsQuery.data?.map((c: any) => (
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="lotId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Lot</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select lot" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          {lotsQuery.data?.map((l: any) => (
+                            <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="rackId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Rack (optional)</FormLabel>
+                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select rack" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="">No rack</SelectItem>
+                          {racksQuery.data?.map((r: any) => (
+                            <SelectItem key={r.id} value={r.id}>{r.code} — {r.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+              </div>
+
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes (optional)</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} placeholder="Notes..." />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+              <div className="flex gap-2">
+                <Button type="button" variant="outline" onClick={() => setLocation("/curator/garments")}>Cancel</Button>
+                <Button type="submit" disabled={updateMutation.isPending}>
+                  {updateMutation.isPending ? "Saving..." : "Save changes"}
+                </Button>
+              </div>
+            </form>
+          </Form>
+        </CardContent>
+      </Card>
+
+      <AlertDialog open={confirmState.open} onOpenChange={(open) => setConfirmState(open ? confirmState : { open: false })}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>
+              {confirmState.open && confirmState.kind === "delete-garment" ? "Delete garment" : "Confirm"}
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {confirmState.open && confirmState.kind === "delete-garment" && "This action cannot be undone."}
+              {confirmState.open && confirmState.kind === "clear-all" && "Remove all photos from this garment?"}
+              {confirmState.open && (confirmState.kind === "remove-existing" || confirmState.kind === "remove-new") && "Remove this photo?"}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setConfirmState({ open: false })}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirm}>
+              Confirm
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

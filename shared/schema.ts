@@ -7,7 +7,8 @@ import {
   timestamp, 
   pgEnum,
   integer,
-  index
+  index,
+  jsonb
 } from "drizzle-orm/pg-core";
 import { createInsertSchema, createSelectSchema } from "drizzle-zod";
 import { z } from "zod";
@@ -93,6 +94,7 @@ export const garments = pgTable(
     gender: genderEnum("gender").notNull(),
     status: garmentStatusEnum("status").notNull().default("IN_STOCK"),
     photoUrl: text("photo_url"),
+    photoUrls: jsonb("photo_urls").default([]).notNull(),
     qrUrl: text("qr_url"),
     categoryId: uuid("category_id")
       .notNull()

@@ -10,6 +10,7 @@ import { Storage as GCSStorage } from "@google-cloud/storage";
 import { randomUUID } from "crypto";
 import path from "path";
 import { storage } from "./storage";
+import { insertGarmentSchema } from "../shared/schema";
 
 
 // Hydrate garments for list/search responses (avoid "missing rack/lot" false positives in UI)
@@ -116,7 +117,13 @@ const upload = multer({
   storage: gcsBucket
     ? multer.memoryStorage()
     : multer.diskStorage({
-        destination: (req, file, cb) => cb(null, "uploads/"),
+        destination: (req, file, cb) => {
+        // En entornos sin GCS (QA/local), guardamos archivos en disco.
+        // Aseguramos que la carpeta exista para evitar errores de subida.
+        const fs = require("fs");
+        if (!fs.existsSync("uploads")) fs.mkdirSync("uploads", { recursive: true });
+        cb(null, "uploads/");
+      },
         filename: (req, file, cb) => {
           const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
           cb(null, file.fieldname + "-" + uniqueSuffix + path.extname(file.originalname));
@@ -132,6 +139,44 @@ const upload = multer({
   }
 },
 });
+
+
+/**
+ * Middleware de subida de fotos (hasta 4).
+ * - Si el request viene como multipart/form-data, aplica multer.
+ * - Acepta:
+ *    - photos (hasta 4 archivos)  ✅ nuevo
+ *    - photo  (1 archivo)         ✅ retro-compatibilidad
+ *
+ * Nota: preferimos "photos" en el frontend.
+ */
+const uploadMiddleware = (req: Request, res: Response, next: NextFunction) => {
+  if (!req.is("multipart/form-data")) return next();
+
+  // Soporta ambos nombres de campo: photos[] (nuevo) y photo (legacy)
+  const handler = upload.fields([
+    { name: "photos", maxCount: 4 },
+    { name: "photo", maxCount: 1 },
+  ]);
+
+  return handler(req, res, next);
+};
+
+
+/**
+ * Extrae los archivos subidos por multer.
+ * Con upload.fields(), req.files puede venir como objeto por nombre de campo.
+ */
+const extractUploadedPhotos = (req: Request): Express.Multer.File[] => {
+  const filesAny: any = (req as any).files;
+  if (!filesAny) return [];
+  if (Array.isArray(filesAny)) return filesAny;
+  const photos: Express.Multer.File[] = Array.isArray(filesAny.photos) ? filesAny.photos : [];
+  const photo: Express.Multer.File[] = Array.isArray(filesAny.photo) ? filesAny.photo : [];
+  return [...photos, ...photo];
+};
+
+
 
 // Rate limiting for auth endpoints
 const authLimiter = rateLimit({
@@ -171,6 +216,8 @@ interface AuthRequest extends Request {
     id: string;
     email: string;
     role: string;
+    // true si el usuario es el Curador Master (PRIMARY_CURATOR_EMAIL)
+    isMasterCurator?: boolean;
   };
 }
 
@@ -197,10 +244,17 @@ const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunctio
       });
     }
 
+    const isMasterCurator = !!(
+      user.role === "CURATOR" &&
+      process.env.PRIMARY_CURATOR_EMAIL &&
+      user.email === process.env.PRIMARY_CURATOR_EMAIL
+    );
+
     req.user = {
       id: user.id,
       email: user.email,
       role: user.role,
+      isMasterCurator,
     };
 
     next();
@@ -214,17 +268,26 @@ const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunctio
 };
 
 
-const requireAdmin = (req: AuthRequest, res: Response): boolean => {
-  const primaryEmail = (process.env.PRIMARY_CURATOR_EMAIL || "").toLowerCase();
-  const isPrimary = !!primaryEmail && (req.user?.email || "").toLowerCase() === primaryEmail;
-  if (!req.user || (req.user.role !== "ADMIN" && !isPrimary)) {
-    res.status(403).json({
-      statusCode: 403,
-      message: "Admin access required",
-      timestamp: new Date().toISOString(),
-    });
-    return false;
-  }
+// =====================
+// Roles & permisos
+// =====================
+// Reglas del negocio:
+// - CURATOR (Curador): crea/edita catálogo e inventario, pero NO gestiona usuarios ni elimina garments.
+// - Curador Master: es un CURATOR cuyo email coincide con PRIMARY_CURATOR_EMAIL. Puede TODO (incluye usuarios y borrar garments).
+// - ADMIN y USER: solo lectura (ver inventario).
+const isReadOnlyRole = (role?: string) => role === "ADMIN" || role === "USER";
+const isCuratorRole = (role?: string) => role === "CURATOR";
+const isMasterCurator = (req: AuthRequest) => !!req.user?.isMasterCurator;
+
+const requireCurator = (req: AuthRequest, res: Response) => {
+  if (!req.user) return res.sendStatus(401), false;
+  if (!isCuratorRole(req.user.role)) return res.sendStatus(403), false;
+  return true;
+};
+
+const requireMaster = (req: AuthRequest, res: Response) => {
+  if (!req.user) return res.sendStatus(401), false;
+  if (!isMasterCurator(req)) return res.sendStatus(403), false;
   return true;
 };
 
@@ -426,13 +489,14 @@ if (!gcsBucket) {
       }
 
       const primaryEmail = (process.env.PRIMARY_CURATOR_EMAIL || "").toLowerCase();
-      const isPrimaryCurator = !!primaryEmail && user.email.toLowerCase() === primaryEmail;
+      const isMasterCurator = user.role === "CURATOR" && !!primaryEmail && user.email.toLowerCase() === primaryEmail;
 
       res.json({
         id: user.id,
         email: user.email,
         name: user.name,
-        role: isPrimaryCurator ? "ADMIN" : user.role,
+        role: user.role,
+        isMasterCurator,
       });
     } catch (error) {
       next(error);
@@ -442,139 +506,97 @@ if (!gcsBucket) {
   // POST /api/users - Create new user (CURATOR only)
   
 // List users (admin only)
-app.get("/api/users", authMiddleware, async (req: AuthRequest, res: Response) => {
-  if (!requireAdmin(req, res)) return;
 
-  const users = await storage.getAllUsers();
-  // Never return password hashes
-  const sanitized = users.map((u: any) => ({
-    id: u.id,
-    email: u.email,
-    name: u.name,
-    role: u.role,
-    createdAt: u.createdAt,
-  }));
-  res.json(sanitized);
+// USERS
+
+app.get("/api/users", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    // Solo curadores pueden ver usuarios
+    if (!requireCurator(req, res)) return;
+
+    const users = await storage.getAllUsers();
+
+    // Nunca devolver passwordHash al frontend
+    res.json(
+      users.map((u: any) => ({
+        id: u.id,
+        email: u.email,
+        name: u.name,
+        role: u.role,
+        createdAt: u.createdAt,
+      })),
+    );
+  } catch (error) {
+    next(error);
+  }
 });
 
-// Delete user (admin only)
-app.delete("/api/users/:id", authMiddleware, async (req: AuthRequest, res: Response) => {
-  if (!requireAdmin(req, res)) return;
-
-  const id = req.params.id;
-  if (!id) {
-    return res.status(400).json({
-      statusCode: 400,
-      message: "User ID is required",
-      timestamp: new Date().toISOString(),
-    });
-  }
-
-  // Prevent deleting yourself
-  if (req.user?.id === id) {
-    return res.status(400).json({
-      statusCode: 400,
-      message: "You cannot delete your own user",
-      timestamp: new Date().toISOString(),
-    });
-  }
-
+app.post("/api/users", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
   try {
-    const ok = await storage.deleteUser(id);
-    if (!ok) {
-      return res.status(404).json({
-        statusCode: 404,
-        message: "User not found",
+    // Solo Curador Master puede crear usuarios
+    if (!requireMaster(req, res)) return;
+
+    const { email, password, name, role } = req.body as any;
+
+    if (!email || !password || !name || !role) {
+      return res.status(400).json({
+        statusCode: 400,
+        message: "Email, password, name, and role are required",
         timestamp: new Date().toISOString(),
       });
     }
-    res.json({ success: true });
-  } catch (e: any) {
-    // FK restrict (movements.movedById) will throw here
-    return res.status(409).json({
-      statusCode: 409,
-      message: "Cannot delete user because it is referenced by other records",
-      timestamp: new Date().toISOString(),
+
+    if (typeof password !== "string" || password.length < 6) {
+      return res.status(400).json({
+        statusCode: 400,
+        message: "Password must be at least 6 characters",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const existingUser = await storage.getUserByEmail(email);
+    if (existingUser) {
+      return res.status(400).json({
+        statusCode: 400,
+        message: "User with this email already exists",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
+
+    const user = await storage.createUser({
+      email,
+      name,
+      role,
+      passwordHash: hashedPassword,
+    } as any);
+
+    res.status(201).json({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      createdAt: user.createdAt,
     });
+  } catch (error) {
+    next(error);
   }
 });
 
-app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!requireAdmin(req, res)) return;
-    try {
-      // Only CURATOR can create users
-      if (req.user!.role !== "CURATOR") {
-        return res.status(403).json({
-          statusCode: 403,
-          message: "Only curators can create users",
-          timestamp: new Date().toISOString(),
-        });
-      }
+app.delete("/api/users/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    // Solo Curador Master puede eliminar usuarios
+    if (!requireMaster(req, res)) return;
 
-      const { email, password, name, role } = req.body;
+    const deleted = await storage.deleteUser(req.params.id);
+    if (!deleted) return res.sendStatus(404);
 
-      if (!email || !password || !name || !role) {
-        return res.status(400).json({
-          statusCode: 400,
-          message: "Email, password, name, and role are required",
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      // Validate password strength
-      if (password.length < 6) {
-        return res.status(400).json({
-          statusCode: 400,
-          message: "Password must be at least 6 characters",
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      // Validate role
-      if (!["ADMIN", "CURATOR"].includes(role)) {
-        return res.status(400).json({
-          statusCode: 400,
-          message: "Role must be ADMIN or CURATOR",
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      const existingUser = await storage.getUserByEmail(email);
-      if (existingUser) {
-        return res.status(409).json({
-          statusCode: 409,
-          message: "Email already exists",
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      const hashedPassword = await bcrypt.hash(password, SALT_ROUNDS);
-
-      const newUser = await storage.createUser({
-        email,
-        passwordHash: hashedPassword,
-        name,
-        role: role as "ADMIN" | "CURATOR",
-      });
-
-      // Log user creation for audit purposes
-      console.log(`[AUDIT] User created - ID: ${newUser.id}, Email: ${newUser.email}, Role: ${newUser.role}, Created by: ${req.user!.email}`);
-
-      res.status(201).json({
-        id: newUser.id,
-        email: newUser.email,
-        name: newUser.name,
-        role: newUser.role,
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // =====================
-  // CATEGORIES ROUTES
-  // =====================
-
+    res.json({ ok: true });
+  } catch (error) {
+    next(error);
+  }
+});
   app.get("/api/categories", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const categories = await storage.getAllCategories();
@@ -609,7 +631,7 @@ app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res
     }
   });
 
-  app.patch("/api/categories/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.patch("/api/categories/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const category = await storage.updateCategory(req.params.id, req.body);
       if (!category) {
@@ -625,7 +647,7 @@ app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res
     }
   });
 
-  app.delete("/api/categories/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.delete("/api/categories/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       // Check if category has garments
       const garmentsWithCategory = await storage.searchGarments({ categoryId: req.params.id });
@@ -689,7 +711,7 @@ app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res
     }
   });
 
-  app.post("/api/garment-types", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.post("/api/garment-types", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const type = await storage.createGarmentType(req.body);
       res.status(201).json(type);
@@ -698,7 +720,7 @@ app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res
     }
   });
 
-  app.patch("/api/garment-types/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.patch("/api/garment-types/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const type = await storage.updateGarmentType(req.params.id, req.body);
       if (!type) {
@@ -714,7 +736,7 @@ app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res
     }
   });
 
-  app.delete("/api/garment-types/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.delete("/api/garment-types/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       // Check if type has garments
       const garmentsWithType = await storage.searchGarments({ garmentTypeId: req.params.id });
@@ -769,7 +791,7 @@ app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res
     }
   });
 
-  app.post("/api/collections", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.post("/api/collections", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const collection = await storage.createCollection(req.body);
       res.status(201).json(collection);
@@ -778,7 +800,7 @@ app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res
     }
   });
 
-  app.patch("/api/collections/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.patch("/api/collections/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const collection = await storage.updateCollection(req.params.id, req.body);
       if (!collection) {
@@ -794,7 +816,7 @@ app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res
     }
   });
 
-  app.delete("/api/collections/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.delete("/api/collections/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       // Check if collection has garments
       const garmentsWithCollection = await storage.searchGarments({ collectionId: req.params.id });
@@ -858,7 +880,7 @@ app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res
     }
   });
 
-  app.post("/api/lots", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.post("/api/lots", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const lot = await storage.createLot(req.body);
       res.status(201).json(lot);
@@ -867,7 +889,7 @@ app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res
     }
   });
 
-  app.patch("/api/lots/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.patch("/api/lots/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const lot = await storage.updateLot(req.params.id, req.body);
       if (!lot) {
@@ -883,7 +905,7 @@ app.post("/api/users", authMiddleware, authLimiter, async (req: AuthRequest, res
     }
   });
 
-  app.delete("/api/lots/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.delete("/api/lots/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       // Check if lot has garments
       const garmentsWithLot = await storage.searchGarments({ lotId: req.params.id });
@@ -1080,7 +1102,7 @@ const rack = await storage.createRack({
     }
   });
 
-  app.patch("/api/racks/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.patch("/api/racks/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       const rack = await storage.updateRack(req.params.id, req.body);
       if (!rack) {
@@ -1096,7 +1118,7 @@ const rack = await storage.createRack({
     }
   });
 
-  app.delete("/api/racks/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  app.delete("/api/racks/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       // Check if rack has garments
       const garmentsWithRack = await storage.searchGarments({ rackId: req.params.id });
@@ -1123,298 +1145,254 @@ const rack = await storage.createRack({
   });
 
   // =====================
-  // GARMENTS ROUTES
-  // =====================
 
-  // GET /api/garments - List/search garments with optional filters
-  app.get("/api/garments", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const filters = {
-        q: req.query.q as string,
-        code: req.query.code as string,
-        categoryId: req.query.categoryId as string,
-        garmentTypeId: req.query.garmentTypeId as string,
-        collectionId: req.query.collectionId as string,
-        lotId: req.query.lotId as string,
-        rackId: req.query.rackId as string,
-        size: req.query.size as string,
-        color: req.query.color as string,
-        gender: req.query.gender as "MALE" | "FEMALE" | "UNISEX",
-        status: req.query.status as string,
-      };
+// GARMENTS
 
-      // Remove undefined values
-      Object.keys(filters).forEach((key) => {
-        if (filters[key as keyof typeof filters] === undefined) {
-          delete filters[key as keyof typeof filters];
-        }
-      });
-
-      const garments = await storage.searchGarments(filters);
-      const hydrated = await hydrateGarmentList(garments);
-      res.json(hydrated);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // GET /api/garments/search - Advanced search with multiple filters
-  app.get("/api/garments/search", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const filters = {
-        q: req.query.q as string,
-        categoryId: req.query.categoryId as string,
-        garmentTypeId: req.query.garmentTypeId as string,
-        collectionId: req.query.collectionId as string,
-        lotId: req.query.lotId as string,
-        rackId: req.query.rackId as string,
-        year: req.query.year ? parseInt(req.query.year as string) : undefined,
-        size: req.query.size as string,
-        color: req.query.color as string,
-        gender: req.query.gender as "MALE" | "FEMALE" | "UNISEX",
-        status: req.query.status as string,
-      };
-
-      // Remove undefined values
-      Object.keys(filters).forEach((key) => {
-        if (filters[key as keyof typeof filters] === undefined) {
-          delete filters[key as keyof typeof filters];
-        }
-      });
-
-      const garments = await storage.searchGarments(filters);
-      const hydrated = await hydrateGarmentList(garments);
-      res.json(hydrated);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.get("/api/garments/by-code/:code", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const garment = await storage.getGarmentByCode(req.params.code);
-      if (!garment) {
-        return res.status(404).json({
-          statusCode: 404,
-          message: "Garment not found",
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      // Get all related data in parallel
-      const [movements, category, garmentType, collection, lot, rack] = await Promise.all([
-        storage.getMovementsByGarment(garment.id),
-        storage.getCategory(garment.categoryId),
-        storage.getGarmentType(garment.garmentTypeId),
-        storage.getCollection(garment.collectionId),
-        storage.getLot(garment.lotId),
-        garment.rackId ? storage.getRack(garment.rackId) : Promise.resolve(null),
-      ]);
-
-      res.json({
-        ...garment,
-        category,
-        garmentType,
-        collection,
-        lot,
-        rack,
-        movements: await hydrateMovementsList(movements),
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  
-  app.get("/api/garments/by-code/:code/qr", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const garment = await storage.getGarmentByCode(req.params.code);
-      if (!garment) {
-        return res.status(404).json({ statusCode: 404, message: "Garment not found", timestamp: new Date().toISOString() });
-      }
-
-      const proto = req.get("x-forwarded-proto") || req.protocol;
-      const baseUrl = `${proto}://${req.get("host")}`;
-      const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(garment.code)}`;
-      const qrUrl = await generateQRCode(garmentUrl);
-
-      // Persistir QR correcto si estaba con dominio viejo/localhost
-      if (garment.qrUrl !== qrUrl) {
-        await storage.updateGarment(garment.id, { qrUrl });
-      }
-
-      res.json({ garmentId: garment.id, code: garment.code, garmentUrl, qrUrl });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-
-  app.get("/api/garments/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      const garment = await storage.getGarment(req.params.id);
-      if (!garment) {
-        return res.status(404).json({
-          statusCode: 404,
-          message: "Garment not found",
-          timestamp: new Date().toISOString(),
-        });
-      }
-
-      // Get movement history
-      const movements = await storage.getMovementsByGarment(req.params.id);
-
-      res.json({
-        ...garment,
-        movements: await hydrateMovementsList(movements),
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  app.post(
-    "/api/garments",
-    authMiddleware,
-    (req: AuthRequest, res: Response, next: NextFunction) => {
-      // Conditional multer middleware - only apply for multipart/form-data
-      if (req.is('multipart/form-data')) {
-        return upload.single("photo")(req, res, next);
-      }
-      // For JSON requests, proceed directly
-      next();
-    },
-    async (req: AuthRequest, res: Response, next: NextFunction) => {
-      try {
-        const { code, size, color, gender, status, categoryId, garmentTypeId, collectionId, lotId, rackId, photoUrl: bodyPhotoUrl } = req.body;
-
-        // Generate QR code for garment
-        const proto = req.get("x-forwarded-proto") || req.protocol;
-        const baseUrl = `${proto}://${req.get("host")}`;
-        const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(code)}`;
-        const qrUrl = await generateQRCode(garmentUrl);
-
-        // Determine photo URL: from uploaded file or from JSON body
-        let photoUrl = bodyPhotoUrl || null;
-if (req.file) {
-  if (gcsBucket) {
-    const objectName = await uploadToGCS(req.file);
-    photoUrl = `/api/photos/${encodeURIComponent(objectName)}`;
-  } else {
-    photoUrl = `/uploads/${req.file.filename}`;
+// Devuelve el siguiente código sugerido para acelerar la creación (ej: GAR-MAR-001)
+app.get("/api/garments/next-code", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!requireCurator(req, res)) return;
+    const prefix = typeof req.query.prefix === "string" && req.query.prefix.trim() ? req.query.prefix.trim() : "GAR-MAR-";
+    const code = await storage.getNextGarmentCode(prefix);
+    res.json({ code });
+  } catch (error) {
+    next(error);
   }
-}
+});
 
-        const garment = await storage.createGarment({
-          code,
-          size,
-          color,
-          gender,
-          status: status || "IN_STOCK",
-          categoryId,
-          garmentTypeId,
-          collectionId,
-          lotId,
-          rackId: rackId || null,
-          photoUrl,
-          qrUrl,
-          createdById: req.user!.id,
-        });
+app.get("/api/garments", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const garments = await storage.getGarments();
+    res.json(garments);
+  } catch (error) {
+    next(error);
+  }
+});
 
-        res.status(201).json(garment);
-      } catch (error) {
-        next(error);
-      }
-    }
-  );
+app.get("/api/garments/search", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { query, status, categoryId, garmentTypeId, collectionId, lotId, rackId } = req.query as any;
+    const garments = await storage.searchGarments({
+      query: typeof query === "string" ? query : undefined,
+      status: typeof status === "string" ? status : undefined,
+      categoryId: typeof categoryId === "string" ? categoryId : undefined,
+      garmentTypeId: typeof garmentTypeId === "string" ? garmentTypeId : undefined,
+      collectionId: typeof collectionId === "string" ? collectionId : undefined,
+      lotId: typeof lotId === "string" ? lotId : undefined,
+      rackId: typeof rackId === "string" ? rackId : undefined,
+    });
+    res.json(garments);
+  } catch (error) {
+    next(error);
+  }
+});
 
-  // PATCH /api/garments/:id/move - Atomic move operation with transaction
-  app.patch("/api/garments/:id/move", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+app.get("/api/garments/by-code/:code", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const garment = await storage.getGarmentByCode(req.params.code);
+    if (!garment) return res.sendStatus(404);
+    res.json(garment);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/garments/by-code/:code/qr", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const garment = await storage.getGarmentByCode(req.params.code);
+    if (!garment) return res.sendStatus(404);
+
+    // Generar (o re-generar) QR on-demand
+    const baseUrl = process.env.PUBLIC_BASE_URL || `https://${req.get("host")}`;
+    const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(garment.code)}`;
+    const qrDataUrl = await generateQRCodeDataUrl(garmentUrl);
+    res.json({ qrDataUrl, garmentUrl });
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.get("/api/garments/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const garment = await storage.getGarment(req.params.id);
+    if (!garment) return res.sendStatus(404);
+    res.json(garment);
+  } catch (error) {
+    next(error);
+  }
+});
+
+// Crear prenda + subir hasta 4 fotos (field "photos")
+app.post(
+  "/api/garments",
+  authMiddleware,
+  uploadMiddleware,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      const { toRackId, toStatus, note } = req.body;
+      if (!requireCurator(req, res)) return;
 
-      if (!toStatus) {
-        return res.status(400).json({
-          statusCode: 400,
-          message: "toStatus is required",
-          timestamp: new Date().toISOString(),
-        });
+      const { code: bodyCode, size, color, gender, status, categoryId, garmentTypeId, collectionId, lotId, rackId } =
+        req.body as any;
+
+      // photoUrls puede llegar como JSON (string) o array
+      const rawBodyPhotoUrls: any = (req.body as any).photoUrls;
+      let photoUrls: string[] = [];
+      if (typeof rawBodyPhotoUrls === "string") {
+        try { photoUrls = JSON.parse(rawBodyPhotoUrls) || []; } catch { photoUrls = []; }
+      } else if (Array.isArray(rawBodyPhotoUrls)) {
+        photoUrls = rawBodyPhotoUrls;
       }
 
-      const result = await storage.moveGarment(req.params.id, toRackId || null, toStatus, req.user!.id, note);
+      // Auto-código si no llega uno
+      const code =
+        typeof bodyCode === "string" && bodyCode.trim() ? bodyCode.trim() : await storage.getNextGarmentCode("GAR-MAR-");
 
-      res.json(result);
-    } catch (error) {
-      next(error);
-    }
-  });
+      const baseUrl = process.env.PUBLIC_BASE_URL || `https://${req.get("host")}`;
+      const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(code)}`;
+      const qrUrl = await generateQRCodeDataUrl(garmentUrl);
 
-  app.patch(
-    "/api/garments/:id",
-    authMiddleware,
-    (req: AuthRequest, res: Response, next: NextFunction) => {
-      // Conditional multer middleware - only apply for multipart/form-data
-      if (req.is('multipart/form-data')) {
-        return upload.single("photo")(req, res, next);
-      }
-      // For JSON requests, proceed directly
-      next();
-    },
-    async (req: AuthRequest, res: Response, next: NextFunction) => {
-      try {
-        const updateData = { ...req.body };
-
-        // If a new photo was uploaded, update the photoUrl
-        if (req.file) {
+      // Archivos subidos en multipart
+      const files = extractUploadedPhotos(req);
+      if (files.length) {
+        for (const f of files.slice(0, 4)) {
           if (gcsBucket) {
-  const objectName = await uploadToGCS(req.file);
-  updateData.photoUrl = `/api/photos/${encodeURIComponent(objectName)}`;
-} else {
-  updateData.photoUrl = `/uploads/${req.file.filename}`;
-}
+            const objectName = await uploadToGCS(f);
+            photoUrls.push(`/api/photos/${encodeURIComponent(objectName)}`);
+          } else {
+            photoUrls.push(`/uploads/${(f as any).filename}`);
+          }
         }
-
-        // If photoUrl is explicitly set to empty string or null, clear it
-        if (updateData.photoUrl === "" || updateData.photoUrl === null) {
-          updateData.photoUrl = null;
-        }
-
-        const garment = await storage.updateGarment(req.params.id, updateData);
-        if (!garment) {
-          return res.status(404).json({
-            statusCode: 404,
-            message: "Garment not found",
-            timestamp: new Date().toISOString(),
-          });
-        }
-        res.json(garment);
-      } catch (error) {
-        next(error);
       }
-    }
-  );
 
-  app.delete("/api/garments/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!requireAdmin(req, res)) return;
-    try {
-      const deleted = await storage.deleteGarment(req.params.id);
-      if (!deleted) {
-        return res.status(404).json({
-          statusCode: 404,
-          message: "Garment not found",
-          timestamp: new Date().toISOString(),
-        });
-      }
-      res.json({ success: true });
+      photoUrls = photoUrls.filter(Boolean).slice(0, 4);
+      const photoUrl = photoUrls[0] || null;
+
+      // createdById: viene del token (no confiamos en req.body)
+      const createdById = req.user!.id;
+
+      const parsed = insertGarmentSchema.parse({
+        code: code,
+        size,
+        color,
+        gender,
+        status,
+        categoryId: categoryId,
+        garmentTypeId: garmentTypeId,
+        collectionId: collectionId,
+        lotId: lotId,
+        rackId: rackId || null,
+        photoUrl,
+        photoUrls,
+        qrUrl,
+        createdById,
+      });
+
+      const garment = await storage.createGarment(parsed);
+      res.status(201).json(garment);
     } catch (error) {
       next(error);
     }
-  });
+  },
+);
 
-  // =====================
-  // STATISTICS ROUTE
-  // =====================
+// Editar prenda + (opcional) subir nuevas fotos y/o reordenar/eliminar (enviando photoUrls "kept")
+app.patch(
+  "/api/garments/:id",
+  authMiddleware,
+  uploadMiddleware,
+  async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireCurator(req, res)) return;
 
+      const current = await storage.getGarment(req.params.id);
+      if (!current) return res.sendStatus(404);
+
+      const updateData: any = { ...req.body };
+
+      // photoUrls puede venir como JSON (string) con las URLs que el usuario "mantiene"
+      const rawKept: any = updateData.photoUrls;
+      let kept: string[] | undefined = undefined;
+      if (typeof rawKept === "string") {
+        try { kept = JSON.parse(rawKept); } catch { kept = undefined; }
+      } else if (Array.isArray(rawKept)) {
+        kept = rawKept;
+      }
+
+      let finalPhotoUrls: string[] = kept ?? (Array.isArray((current as any).photoUrls) ? (current as any).photoUrls : []);
+      const files = extractUploadedPhotos(req);
+
+      if (files.length) {
+        for (const f of files.slice(0, 4)) {
+          if (gcsBucket) {
+            const objectName = await uploadToGCS(f);
+            finalPhotoUrls.push(`/api/photos/${encodeURIComponent(objectName)}`);
+          } else {
+            finalPhotoUrls.push(`/uploads/${(f as any).filename}`);
+          }
+        }
+      }
+
+      finalPhotoUrls = finalPhotoUrls.filter(Boolean).slice(0, 4);
+
+      updateData.photoUrls = finalPhotoUrls;
+      updateData.photoUrl = finalPhotoUrls[0] || null;
+
+      // Campos que NO deberían actualizarse desde el cliente
+      delete updateData.createdById;
+      delete updateData.createdAt;
+      delete updateData.qrUrl; // solo se cambia si cambia el code (no soportado aquí)
+      delete updateData.code;  // code se controla en creación (y QR ligado al code)
+
+      // Normaliza IDs opcionales
+      for (const k of ["rackId"]) {
+        if (updateData[k] === "") updateData[k] = null;
+      }
+
+      const garment = await storage.updateGarment(req.params.id, updateData);
+      if (!garment) return res.sendStatus(404);
+      res.json(garment);
+    } catch (error) {
+      next(error);
+    }
+  },
+);
+
+app.patch("/api/garments/:id/move", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    if (!requireCurator(req, res)) return;
+
+    const { rackId, status } = req.body as any;
+    const garment = await storage.updateGarment(req.params.id, {
+      rackId: rackId || null,
+      status,
+    });
+
+    if (!garment) {
+      return res.status(404).json({
+        statusCode: 404,
+        message: "Garment not found",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
+    res.json(garment);
+  } catch (error) {
+    next(error);
+  }
+});
+
+app.delete("/api/garments/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  try {
+    // Solo Curador Master puede eliminar garments
+    if (!requireMaster(req, res)) return;
+
+    const garment = await storage.deleteGarment(req.params.id);
+    if (!garment) return res.sendStatus(404);
+    res.json(garment);
+  } catch (error) {
+    next(error);
+  }
+});
   app.get("/api/stats", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       // Get all garments to calculate stats

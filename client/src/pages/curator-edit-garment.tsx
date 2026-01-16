@@ -141,17 +141,24 @@ export default function CuratorEditGarment() {
     const list = Array.from(files);
     if (list.length === 0) return;
 
+    // UX fast-fail
     if (remainingSlots <= 0) {
       toast({ title: "Max 4 photos", description: "Remove a photo to add a new one." });
       return;
     }
 
-    const toAdd = list.slice(0, remainingSlots).map((file) => ({
-      file,
-      previewUrl: makePreviewUrl(file),
-    }));
+    // Guardrail: never exceed 4 total previews even if triggered rapidly.
+    setNewPhotos((prev) => {
+      const slots = Math.max(0, 4 - existingPhotoUrls.length - prev.length);
+      if (slots <= 0) return prev;
 
-    setNewPhotos((prev) => [...prev, ...toAdd]);
+      const toAdd = list.slice(0, slots).map((file) => ({
+        file,
+        previewUrl: makePreviewUrl(file),
+      }));
+
+      return [...prev, ...toAdd];
+    });
 
     if (list.length > remainingSlots) {
       toast({ title: "Some photos were skipped", description: "You can only have 4 photos per garment." });

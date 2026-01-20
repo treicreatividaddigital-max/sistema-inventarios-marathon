@@ -94,6 +94,21 @@ export default function CuratorNewGarment() {
     },
   });
 
+  const categoryId = form.watch("categoryId");
+  const collectionId = form.watch("collectionId");
+
+  // Cascada: si cambia el padre, limpiar el hijo
+  useEffect(() => {
+    form.setValue("garmentTypeId", "");
+  }, [categoryId]);
+
+  useEffect(() => {
+    form.setValue("lotId", "");
+  }, [collectionId]);
+
+
+
+
   // 1) Traer el siguiente código automáticamente
   const nextCodeQuery = useQuery<{ code: string }>({
     queryKey: ["/api/garments/next-code"],
@@ -114,7 +129,8 @@ export default function CuratorNewGarment() {
   });
 
   const { data: garmentTypes } = useQuery({
-    queryKey: ["/api/garment-types"],
+    queryKey: ["/api/garment-types/by-category", categoryId],
+    enabled: !!categoryId,
     queryFn: getQueryFn({ on401: "throw" }),
   });
 
@@ -124,7 +140,8 @@ export default function CuratorNewGarment() {
   });
 
   const { data: lots } = useQuery({
-    queryKey: ["/api/lots"],
+    queryKey: ["/api/lots/by-collection", collectionId],
+    enabled: !!collectionId,
     queryFn: getQueryFn({ on401: "throw" }),
   });
 

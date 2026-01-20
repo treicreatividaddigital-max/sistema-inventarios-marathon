@@ -60,7 +60,7 @@ export default function CuratorEditGarment() {
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
 
-  const garmentQuery = useQuery({
+  const garmentQuery = useQuery<any>({
     queryKey: ["/api/garments", id],
     queryFn: getQueryFn({ on401: "throw" }),
     enabled: Boolean(id),
@@ -72,7 +72,8 @@ export default function CuratorEditGarment() {
   });
 
   const garmentTypesQuery = useQuery({
-    queryKey: ["/api/garment-types"],
+    queryKey: ["/api/garment-types/by-category", garmentQuery.data?.categoryId],
+    enabled: !!garmentQuery.data?.categoryId,
     queryFn: getQueryFn({ on401: "throw" }),
   });
 
@@ -82,7 +83,8 @@ export default function CuratorEditGarment() {
   });
 
   const lotsQuery = useQuery({
-    queryKey: ["/api/lots"],
+    queryKey: ["/api/lots/by-collection", garmentQuery.data?.collectionId],
+    enabled: !!garmentQuery.data?.collectionId,
     queryFn: getQueryFn({ on401: "throw" }),
   });
 
@@ -108,6 +110,30 @@ export default function CuratorEditGarment() {
       description: "",
     },
   });
+
+  const categoryId = form.watch("categoryId");
+  const collectionId = form.watch("collectionId");
+
+
+  // Cascada (EDIT): no limpiar en el primer render (mantener valores del garment cargado)
+  const didInitCascade = useRef(false);
+
+  useEffect(() => {
+    if (!didInitCascade.current) return;
+    form.setValue("garmentTypeId", "");
+  }, [categoryId]);
+
+  useEffect(() => {
+    if (!didInitCascade.current) return;
+    form.setValue("lotId", "");
+  }, [collectionId]);
+
+  useEffect(() => {
+    didInitCascade.current = true;
+  }, []);
+
+
+
 
   // Sincronizamos el form y las fotos al cargar la prenda
   useEffect(() => {

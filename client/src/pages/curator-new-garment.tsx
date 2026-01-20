@@ -311,7 +311,7 @@ export default function CuratorNewGarment() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Gender</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={field.onChange} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select gender" />
@@ -465,7 +465,7 @@ export default function CuratorNewGarment() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Rack (optional)</FormLabel>
-                    <Select onValueChange={(v) => field.onChange(v === "__NONE__" ? "" : v)} defaultValue={field.value}>
+                    <Select onValueChange={(v) => field.onChange(v === "__NONE__" ? "" : v)} value={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select rack" />

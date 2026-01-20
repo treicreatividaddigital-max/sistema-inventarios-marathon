@@ -79,7 +79,7 @@ if (isLoading) {
         <div className="flex-1">
           <h1 className="text-3xl font-semibold">Garment Details</h1>
           <p className="text-muted-foreground mt-1 font-mono text-sm">
-            {garment.code}
+            {garment?.code ?? "—"}
           </p>
         </div></div>
 
@@ -95,7 +95,7 @@ if (isLoading) {
                   Category
                 </p>
                 <p className="text-base" data-testid="text-category">
-                  {garment.category.name}
+                  {garment?.category?.name ?? "—"}
                 </p>
               </div>
 
@@ -104,7 +104,7 @@ if (isLoading) {
                   Type
                 </p>
                 <p className="text-base" data-testid="text-type">
-                  {garment.garmentType.name}
+                  {garment?.garmentType?.name ?? "—"}
                 </p>
               </div>
 
@@ -113,7 +113,7 @@ if (isLoading) {
                   Collection
                 </p>
                 <p className="text-base" data-testid="text-collection">
-                  {garment.collection.name}
+                  {garment?.collection?.name ?? "—"}
                 </p>
               </div>
 
@@ -122,7 +122,7 @@ if (isLoading) {
                   Lot
                 </p>
                 <p className="text-base font-mono" data-testid="text-lot">
-                  {garment.lot.code}
+                  {garment?.lot?.code ?? "—"}
                 </p>
               </div>
 
@@ -182,7 +182,7 @@ if (isLoading) {
                       {garment.rack.code}
                     </p>
                     <p className="text-sm text-muted-foreground">
-                      {garment.rack.name} • {garment.rack.zone}
+                      {garment?.rack ? `${garment.rack.name} • ${garment.rack.zone}` : "—"}
                     </p>
                   </div>
                   <Link href={`/rack/${garment.rack.code}`}>
@@ -242,7 +242,7 @@ if (isLoading) {
                         </div>
                         {movement.movedBy && (
                           <p className="text-xs text-muted-foreground mt-2">
-                            By {movement.movedBy.name}
+                            By {movement?.movedBy?.name ?? "—"}
                           </p>
                         )}
                       </div>
@@ -263,7 +263,7 @@ if (isLoading) {
               {garment.photoUrl ? (
                 <img
                   src={garment.photoUrl}
-                  alt={garment.code}
+                  alt={garment?.code ?? "—"}
                   className="w-full aspect-[3/4] object-cover rounded-lg"
                 />
               ) : (
@@ -296,7 +296,7 @@ if (isLoading) {
               {garment.qrUrl ? (
                 <img
                   src={garmentQr?.qrUrl || garment.qrUrl}
-                  alt={`QR Code for ${garment.code}`}
+                  alt={`QR Code for ${garment?.code ?? "—"}`}
                   className="w-64 h-64"
                 />
               ) : (
@@ -305,7 +305,7 @@ if (isLoading) {
                 </div>
               )}
               <p className="font-mono text-sm mt-4 text-center" data-testid="text-qr-code">
-                {garment.code}
+                {garment?.code ?? "—"}
               </p>
             </CardContent>
           </Card>

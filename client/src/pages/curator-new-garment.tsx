@@ -216,7 +216,7 @@ export default function CuratorNewGarment() {
       // Refrescar el próximo código para la siguiente creación
       await nextCodeQuery.refetch();
 
-      setLocation("/curator/garments");
+      setLocation("/curator");
     },
     onError: (error: Error) => {
       toast({
@@ -465,14 +465,14 @@ export default function CuratorNewGarment() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Rack (optional)</FormLabel>
-                    <Select onValueChange={field.onChange} defaultValue={field.value}>
+                    <Select onValueChange={(v) => field.onChange(v === "__NONE__" ? "" : v)} defaultValue={field.value}>
                       <FormControl>
                         <SelectTrigger>
                           <SelectValue placeholder="Select rack" />
                         </SelectTrigger>
                       </FormControl>
                       <SelectContent>
-                        <SelectItem value="">No rack</SelectItem>
+                        <SelectItem value="__NONE__">No rack</SelectItem>
                         {(racks as any[] | undefined)?.map((r: any) => (
                           <SelectItem key={r.id} value={r.id}>
                             {r.code} - {r.name}
@@ -574,7 +574,7 @@ export default function CuratorNewGarment() {
                 <Button type="submit" disabled={createMutation.isPending}>
                   {createMutation.isPending ? "Creating..." : "Create"}
                 </Button>
-                <Button type="button" variant="outline" onClick={() => setLocation("/curator/garments")}>
+                <Button type="button" variant="outline" onClick={() => setLocation("/curator")}>
                   Cancel
                 </Button>
               </div>

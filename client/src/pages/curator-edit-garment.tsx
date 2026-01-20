@@ -263,7 +263,7 @@ export default function CuratorEditGarment() {
     onSuccess: () => {
       invalidateGarmentQueries();
       toast({ title: "Deleted", description: "Garment deleted" });
-      setLocation("/curator/garments");
+      setLocation("/curator");
     },
     onError: (err: any) => {
       toast({ title: "Delete failed", description: err?.message || "Unknown error", variant: "destructive" });
@@ -610,14 +610,14 @@ export default function CuratorEditGarment() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Rack (optional)</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value || ""}>
+                      <Select onValueChange={(v) => field.onChange(v === "__NONE__" ? "" : v)} value={field.value || ""}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select rack" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          <SelectItem value="">No rack</SelectItem>
+                          <SelectItem value="__NONE__">No rack</SelectItem>
                           {(racksQuery.data as any[] | undefined)?.map((r: any) => (
                             <SelectItem key={r.id} value={r.id}>{r.code} — {r.name}</SelectItem>
                           ))}
@@ -644,7 +644,7 @@ export default function CuratorEditGarment() {
               />
 
               <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setLocation("/curator/garments")}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={() => setLocation("/curator")}>Cancel</Button>
                 <Button type="submit" disabled={updateMutation.isPending}>
                   {updateMutation.isPending ? "Saving..." : "Save changes"}
                 </Button>

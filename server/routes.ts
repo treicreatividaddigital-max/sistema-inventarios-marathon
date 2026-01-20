@@ -113,6 +113,7 @@ async function uploadToGCS(file: Express.Multer.File): Promise<string> {
   return objectName;
 }
 
+
 const upload = multer({
   // Cloud Run: evitar DiskStorage/fs. Siempre usar memoryStorage.
   storage: multer.memoryStorage(),
@@ -126,9 +127,6 @@ const upload = multer({
     }
   },
 });
-
-
-
 /**
  * Middleware de subida de fotos (hasta 4).
  * - Si el request viene como multipart/form-data, aplica multer.

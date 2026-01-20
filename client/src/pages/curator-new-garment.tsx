@@ -49,7 +49,7 @@ const formSchema = z.object({
   garmentTypeId: z.string().min(1, "Garment type is required"),
   collectionId: z.string().min(1, "Collection is required"),
   lotId: z.string().min(1, "Lot is required"),
-  rackId: z.string().optional(),
+  rackId: z.string().min(1, "Rack is required"),
   description: z.string().optional(),
 });
 
@@ -471,9 +471,7 @@ export default function CuratorNewGarment() {
                           <SelectValue placeholder="Select rack" />
                         </SelectTrigger>
                       </FormControl>
-                      <SelectContent>
-                        <SelectItem value="__NONE__">No rack</SelectItem>
-                        {(racks as any[] | undefined)?.map((r: any) => (
+                      <SelectContent>                        {(racks as any[] | undefined)?.map((r: any) => (
                           <SelectItem key={r.id} value={r.id}>
                             {r.code} - {r.name}
                           </SelectItem>

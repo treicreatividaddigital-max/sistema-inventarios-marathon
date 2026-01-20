@@ -156,6 +156,7 @@ const uploadMiddleware = (req: Request, res: Response, next: NextFunction) => {
   // Soporta ambos nombres de campo: photos[] (nuevo) y photo (legacy)
   const handler = upload.fields([
     { name: "photos", maxCount: 4 },
+    { name: "photos[]", maxCount: 4 },
     { name: "photo", maxCount: 1 },
   ]);
 
@@ -172,8 +173,9 @@ const extractUploadedPhotos = (req: Request): Express.Multer.File[] => {
   if (!filesAny) return [];
   if (Array.isArray(filesAny)) return filesAny;
   const photos: Express.Multer.File[] = Array.isArray(filesAny.photos) ? filesAny.photos : [];
+  const photosBracket: Express.Multer.File[] = Array.isArray(filesAny["photos[]"]) ? filesAny["photos[]"] : [];
   const photo: Express.Multer.File[] = Array.isArray(filesAny.photo) ? filesAny.photo : [];
-  return [...photos, ...photo];
+  return [...photos, ...photosBracket, ...photo];
 };
 
 

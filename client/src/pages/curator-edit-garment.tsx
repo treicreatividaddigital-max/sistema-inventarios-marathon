@@ -196,7 +196,7 @@ export default function CuratorEditGarment() {
       newPhotos.forEach((p) => fd.append("photos", p.file));
 
       const res = await apiRequest("PATCH", `/api/garments/${id}`, fd);
-      return res.json();
+      return res;
     },
     onSuccess: () => {
       invalidateGarmentQueries();
@@ -217,7 +217,7 @@ export default function CuratorEditGarment() {
       const res = await apiRequest("PATCH", `/api/garments/${id}`, {
         photoUrls: urls,
       });
-      return res.json();
+      return res;
     },
     onSuccess: () => {
       invalidateGarmentQueries();
@@ -232,7 +232,7 @@ export default function CuratorEditGarment() {
   const deleteMutation = useMutation({
     mutationFn: async () => {
       const res = await apiRequest("DELETE", `/api/garments/${id}`);
-      return res.json();
+      return res;
     },
     onSuccess: () => {
       invalidateGarmentQueries();

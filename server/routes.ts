@@ -114,15 +114,20 @@ async function uploadToGCS(file: Express.Multer.File): Promise<string> {
 }
 
 const upload = multer({
-  storage: gcsBucket
-    ? multer.memoryStorage()
-    : multer.diskStorage({
-        destination: (req, file, cb) => {
-        // En entornos sin GCS (QA/local), guardamos archivos en disco.
-        // Aseguramos que la carpeta exista para evitar errores de subida.
-        const fs = require("fs");
-        if (!fs.existsSync("uploads")) fs.mkdirSync("uploads", { recursive: true });
-        cb(null, "uploads/");
+  // Cloud Run: evitar DiskStorage/fs. Siempre usar memoryStorage.
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+  fileFilter: (req, file, cb) => {
+    const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Invalid file type. Only JPEG, PNG, and WebP are allowed."));
+    }
+  },
+});
+
+cb(null, "uploads/");
       },
         filename: (req, file, cb) => {
           const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);

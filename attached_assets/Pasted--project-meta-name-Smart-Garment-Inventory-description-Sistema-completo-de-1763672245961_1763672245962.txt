@@ -1,0 +1,107 @@
+{
+  "project_meta": {
+    "name": "Smart Garment Inventory",
+    "description": "Sistema completo de inventario para fábrica de ropa deportiva con QR y PWA.",
+    "context": "Fullstack App: NestJS Backend + Next.js Frontend (PWA).",
+    "instruction_mode": "SEQUENTIAL_BUILD"
+  },
+  "tech_stack": {
+    "backend": {
+      "framework": "NestJS",
+      "language": "TypeScript",
+      "orm": "Prisma (PostgreSQL)",
+      "auth": "Passport-JWT",
+      "file_upload": "Multer (Local storage for dev, abstraction for cloud)",
+      "qr_generator": "qrcode (node module)"
+    },
+    "frontend": {
+      "framework": "Next.js (App Router)",
+      "language": "TypeScript",
+      "styling": "Tailwind CSS + Shadcn/UI (highly recommended for speed)",
+      "icons": "Lucide-React",
+      "state": "TanStack Query (React Query)",
+      "http_client": "Axios",
+      "pwa_plugin": "next-pwa"
+    }
+  },
+  "database_schema_specs": {
+    "engine": "PostgreSQL",
+    "models": [
+      {
+        "name": "User",
+        "fields": "id (UUID), email, password_hash, name, role (ENUM: ADMIN, CURATOR, USER), created_at"
+      },
+      {
+        "name": "Category",
+        "fields": "id (UUID), name, description, image_url, order_index",
+        "relations": "has many GarmentTypes, has many Garments"
+      },
+      {
+        "name": "GarmentType",
+        "fields": "id (UUID), name, description, image_url",
+        "relations": "belongs to Category, has many Garments"
+      },
+      {
+        "name": "Collection",
+        "fields": "id (UUID), name, type, year, description",
+        "relations": "has many Lots, has many Garments"
+      },
+      {
+        "name": "Rack",
+        "fields": "id (UUID), code (unique), name, zone, qr_url",
+        "relations": "has many Garments"
+      },
+      {
+        "name": "Garment",
+        "fields": "id (UUID), code (unique), size, color, gender, status (ENUM), photo_url, qr_url",
+        "relations": "Category, GarmentType, Collection, Rack, Lot, created_by (User)"
+      },
+      {
+        "name": "Movement",
+        "fields": "id (UUID), from_status, to_status, note, moved_at",
+        "relations": "Garment, from_rack (Rack), to_rack (Rack), moved_by (User)"
+      }
+    ]
+  },
+  "backend_modules": [
+    {
+      "name": "Auth",
+      "endpoints": ["POST /auth/login", "POST /auth/register", "GET /auth/me"]
+    },
+    {
+      "name": "Inventory",
+      "endpoints": [
+        "CRUD for Categories, Types, Collections, Racks",
+        "GET /garments (with filters: category, size, rack, etc)",
+        "POST /garments (create + generate QR)",
+        "PATCH /garments/:id/move (handle rack change + logic to create Movement record)"
+      ]
+    },
+    {
+      "name": "QR",
+      "endpoints": ["POST /qr/generate (returns base64 or url)"]
+    }
+  ],
+  "frontend_features": {
+    "layout": "Sidebar layout for Curator, Navbar layout for User Portal.",
+    "theme": "Dark/Light mode support. Primary color: Blue/Teal.",
+    "pages": [
+      { "route": "/login", "desc": "Universal login" },
+      { "route": "/dashboard", "desc": "Role based redirect" },
+      { "route": "/search", "desc": "Filters sidebar + Grid of Garment Cards" },
+      { "route": "/garment/:id", "desc": "Details, Photo, Large QR Code, History Timeline" },
+      { "route": "/curator/scan", "desc": "Camera QR Reader using 'react-qr-reader'" },
+      { "route": "/curator/new", "desc": "Multi-step form to add garment" }
+    ]
+  },
+  "execution_plan": {
+    "phase_1_setup": "Initialize NestJS project and Next.js project in a monorepo structure or separate folders (backend/frontend). Configure Docker Compose for PostgreSQL.",
+    "phase_2_database": "Create `schema.prisma` based on the `database_schema_specs`. Run `prisma migrate dev` to generate tables. Generate Prisma Client.",
+    "phase_3_backend_core": "Implement AuthModule (Guards, JWT strategy). Implement basic CRUD services for Categories and Racks to test DB connection.",
+    "phase_4_backend_logic": "Implement GarmentService including the QR generation logic and Movement history tracking.",
+    "phase_5_frontend_setup": "Install Tailwind, Axios, React Query. Setup Authentication Context (Login/Logout logic).",
+    "phase_6_frontend_views": "Build the Search Page and Garment Detail page. Ensure responsive design.",
+    "phase_7_pwa_curator": "Implement the Scanner page and 'Add Garment' form. Configure `next-pwa` in next.config.js.",
+    "phase_8_integration": "Connect Frontend forms to Backend APIs. Verify QR scanning redirects to correct URL."
+  }
+}

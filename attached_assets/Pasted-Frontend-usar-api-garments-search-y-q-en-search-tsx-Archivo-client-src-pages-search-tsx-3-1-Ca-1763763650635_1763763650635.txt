@@ -1,0 +1,59 @@
+Frontend: usar /api/garments/search y q en search.tsx
+
+Archivo: client/src/pages/search.tsx
+
+3.1. Cambiar de code → q en los query params
+
+Localiza la construcción de queryParams:
+
+const queryParams = new URLSearchParams();
+if (searchQuery) queryParams.append("code", searchQuery);
+if (filters.categoryId) queryParams.append("categoryId", filters.categoryId);
+if (filters.garmentTypeId) queryParams.append("garmentTypeId", filters.garmentTypeId);
+if (filters.collectionId) queryParams.append("collectionId", filters.collectionId);
+if (filters.lotId) queryParams.append("lotId", filters.lotId);
+if (filters.rackId) queryParams.append("rackId", filters.rackId);
+if (filters.size) queryParams.append("size", filters.size);
+if (filters.color) queryParams.append("color", filters.color);
+if (filters.gender) queryParams.append("gender", filters.gender);
+if (filters.status) queryParams.append("status", filters.status);
+
+
+Cámbialo a:
+
+const queryParams = new URLSearchParams();
+
+// Búsqueda libre (code, color) usando "q"
+if (searchQuery) queryParams.append("q", searchQuery);
+
+if (filters.categoryId) queryParams.append("categoryId", filters.categoryId);
+if (filters.garmentTypeId) queryParams.append("garmentTypeId", filters.garmentTypeId);
+if (filters.collectionId) queryParams.append("collectionId", filters.collectionId);
+if (filters.lotId) queryParams.append("lotId", filters.lotId);
+if (filters.rackId) queryParams.append("rackId", filters.rackId);
+if (filters.size) queryParams.append("size", filters.size);
+if (filters.color) queryParams.append("color", filters.color);
+if (filters.gender) queryParams.append("gender", filters.gender);
+if (filters.status) queryParams.append("status", filters.status);
+
+
+3.2. Hacer que el buscador use /api/garments/search
+
+Justo debajo tienes:
+
+const garmentQueryUrl = `/api/garments${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
+const { data: garments = [], isLoading: garmentsLoading } = useQuery<Garment[]>({
+  queryKey: [garmentQueryUrl],
+});
+
+
+Cámbialo a:
+
+const garmentQueryUrl = `/api/garments/search${queryParams.toString() ? `?${queryParams.toString()}` : ""}`;
+
+const { data: garments = [], isLoading: garmentsLoading } = useQuery<Garment[]>({
+  queryKey: [garmentQueryUrl],
+});
+
+
+El resto del componente puede quedarse igual: tarjetas, filtros, etc.

@@ -1,0 +1,18 @@
+{
+  "projects": {
+    "default": "marathon-inventarios-qa"
+  },
+  "targets": {
+    "marathon-inventarios-qa": {
+      "hosting": {
+        "archive-marathon": [
+          "archive-marathon"
+        ],
+        "archive-marathon-qa": [
+          "archive-marathon-qa"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}

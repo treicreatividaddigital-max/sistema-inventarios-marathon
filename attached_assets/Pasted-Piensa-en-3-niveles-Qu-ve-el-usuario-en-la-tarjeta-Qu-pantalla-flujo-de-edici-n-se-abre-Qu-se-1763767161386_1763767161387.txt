@@ -1,0 +1,239 @@
+Piensa en 3 niveles:
+
+Qué ve el usuario en la tarjeta
+
+Qué pantalla/flujo de edición se abre
+
+Qué se actualiza en backend
+
+1. Cambios en las tarjetas de producto (search, rack, etc.)
+
+Objetivo: que desde cualquier tarjeta de prenda el curador pueda:
+
+Ver si falta algo (foto, talla, etc.).
+
+Acceder a un modo “Editar” para corregir.
+
+1.1. Añadir estado visual en la tarjeta
+
+En todas las tarjetas de prenda (en /search, /rack/:id, etc.):
+
+Muestra indicadores claros:
+
+Si no hay foto → un placeholder + texto “Sin foto”.
+
+Si falta algún dato clave (ej. sin rack, sin lote) → un pequeño badge o icono de alerta.
+
+Reserva una zona de acciones en la tarjeta (por ejemplo, esquina superior derecha o parte inferior):
+
+Para usuarios CURATOR o ADMIN:
+
+Mostrar un botón o ícono “Editar” (por ejemplo, lápiz).
+
+Para usuario USER:
+
+No mostrar acciones de edición, solo ver.
+
+Esto es puramente de UI: iconos, textos y un botón “Editar”.
+
+1.2. Qué hace el botón “Editar” de la tarjeta
+
+Define un comportamiento único:
+
+Al hacer clic en “Editar”:
+
+Opción A (más simple): navegar a una página de detalle/edición /garment/:id.
+
+Opción B (más moderna): abrir un panel lateral (drawer) o modal con el formulario de edición.
+
+Lo importante: no dupliques formularios. Usa el mismo formulario que ya tienes en “Nuevo Garment”, pero en modo edición.
+
+2. Flujo de edición de prenda (formulario completo)
+
+Ya tienes un formulario multi-paso para “Nuevo Garment”. La idea es reutilizarlo para editar:
+
+2.1. Entrada al flujo de edición
+
+Cuando entras a /garment/:id o al modal de edición:
+
+Haz que el formulario:
+
+Cargue los datos actuales de la prenda desde la API.
+
+Rellene todos los campos: código, talla, color, género, categoría, tipo, colección, lote, rack, estado y foto.
+
+Cambia el texto de la UI para dejar claro:
+
+En vez de “Crear prenda”, usar “Editar prenda”.
+
+Botón final: “Guardar cambios” en vez de “Crear”.
+
+2.2. Qué campos deben poder editarse
+
+Permite que el curador puede corregir:
+
+Datos básicos:
+
+Código (si tu negocio lo permite).
+
+Talla, color, género.
+
+Clasificación:
+
+Categoría, Tipo de prenda, Colección, Lote, Año.
+
+Ubicación:
+
+Rack / Percha.
+
+Estado:
+
+En stock, producción, reservado, despachado, etc.
+
+Foto:
+
+Cargar nueva foto.
+
+Quitar foto si es incorrecta.
+
+2.3. Opciones específicas para la foto
+
+Dentro del mismo formulario:
+
+Si NO hay foto:
+
+Mostrar un bloque con:
+
+“Sin foto” + botón “Cargar foto”.
+
+Si HAY foto:
+
+Mostrar la imagen actual.
+
+Debajo, dos opciones:
+
+“Reemplazar foto” (abre selector de archivo).
+
+“Eliminar foto” (deja el campo de foto en blanco).
+
+Lógica de negocio:
+
+Si el curador sube una nueva foto → la prenda se guarda con la nueva foto.
+
+Si pulsa “Eliminar foto” → se guarda sin foto.
+
+No necesitas un flujo aparte: se trata como parte de la edición general.
+
+2.4. Validaciones en edición
+
+Mantén las mismas reglas de validación que en “Nuevo Garment”:
+
+No permitir guardar:
+
+Sin categoría / tipo / colección.
+
+Sin talla, color, etc. (según lo que definiste obligatorio).
+
+Si cambias colección/lote:
+
+Asegúrate que el lote pertenece a la colección seleccionada (validación de negocio).
+
+3. Cambios necesarios en backend (a nivel conceptual)
+
+No entro a código, solo al “qué debe existir”.
+
+Ya tienes:
+
+Un endpoint para crear prendas (con foto).
+
+Un endpoint para actualizar prendas (PATCH /garments/:id).
+
+Para soportar edición desde tarjetas:
+
+Asegúrate de que el backend permita actualizaciones parciales de:
+
+Datos básicos (size, color, gender, status).
+
+Clasificación (categoryId, garmentTypeId, collectionId, lotId, year).
+
+Ubicación (rackId).
+
+Foto (photoUrl / archivo).
+
+Diferencia dos casos en el servidor:
+
+Cuando el curador envía un formulario con nueva foto:
+
+Guardar la nueva foto y actualizar photoUrl.
+
+Cuando el curador marca “Eliminar foto”:
+
+Limpiar photoUrl (ponerla en null o string vacío).
+
+Mantén una regla de permisos:
+
+Solo CURATOR y ADMIN pueden editar prendas.
+
+USER solo puede leer.
+
+4. Cambios de flujo para evitar errores comunes
+
+Para que realmente sirva para “corregir errores de carga”, yo haría esto:
+
+Desde el listado (/search, /rack/:id):
+
+Si una prenda no tiene foto o tiene datos incompletos:
+
+Muestra un indicador claro en la tarjeta (badge de “incompleta”).
+
+El botón “Editar” debe ser muy visible.
+
+En la pantalla de edición:
+
+Muestra de forma clara los datos problemáticos:
+
+Por ejemplo, mensajes pequeños tipo “Sin percha asignada”, “Sin foto”.
+
+Esto orienta al curador a corregir rápido.
+
+Tras guardar cambios:
+
+Vuelve automáticamente a donde estaba:
+
+Si vino desde /rack/:id, regresar ahí.
+
+Si vino desde /search, regresar al listado con los mismos filtros.
+
+5. Resumen operativo (lista de tareas)
+
+Para ti o tu equipo:
+
+Tarjetas de prenda:
+
+Añadir botón/ícono “Editar” visible solo para CURATOR/ADMIN.
+
+Mostrar estados: “Sin foto”, “Sin percha”, etc. como badges.
+
+Flujo de edición:
+
+Crear/reutilizar página o panel de edición que cargue los datos de la prenda.
+
+Usar el mismo formulario de “Nuevo Garment”, pero en modo edición (campos precargados).
+
+Permitir cambiar todos los campos relevantes: datos, clasificación, ubicación, estado, foto.
+
+Foto:
+
+En el formulario de edición:
+
+Si no hay foto: botón “Cargar foto”.
+
+Si hay foto: botones “Reemplazar foto” y “Eliminar foto”.
+
+Asegurarse que backend soporta guardar nueva foto y eliminarla.
+
+Backend:
+
+Confirmar que PATCH /garments/:id (o el endpoint que uses) acepta actualizaciones parciales de todos estos campos.
+
+Mantener roles: solo CURATOR/ADMIN pueden editar.

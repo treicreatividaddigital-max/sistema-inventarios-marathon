@@ -1,0 +1,407 @@
+Voy a dejarlo como checklist de trabajo, por área, con cambios concretos a nivel de frontend y backend.
+
+---
+
+## 1. Carga de fotografías de nuevos garments
+
+### 1.1. Frontend – `curator-new-garment`
+
+1. Guardar también el `File`, no solo el base64
+
+* Añadir estado:
+
+```ts
+const [photoFile, setPhotoFile] = useState<File | null>(null);
+```
+
+* Modificar `handlePhotoChange`:
+
+```ts
+const handlePhotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+
+  setPhotoFile(file); // guardar el File para el envío
+
+  const reader = new FileReader();
+  reader.onloadend = () => {
+    setPhotoPreview(reader.result as string); // solo para preview
+    // opcional: ya no seteas photoUrl en el form, lo dejarás al backend
+    form.setValue("photoUrl", ""); 
+  };
+  reader.readAsDataURL(file);
+};
+```
+
+2. Cambiar el submit a `FormData`
+
+* En la `mutation` de creación de garment, en lugar de llamar a `apiRequest` con JSON:
+
+```ts
+const createGarmentMutation = useMutation({
+  mutationFn: async (data: FormValues) => {
+    const formData = new FormData();
+    formData.append("code", data.code);
+    formData.append("size", data.size);
+    formData.append("color", data.color);
+    formData.append("gender", data.gender);
+    formData.append("status", data.status ?? "IN_STOCK");
+    formData.append("categoryId", data.categoryId);
+    formData.append("garmentTypeId", data.garmentTypeId);
+    formData.append("collectionId", data.collectionId);
+    if (data.lotId) formData.append("lotId", data.lotId);
+    if (data.rackId) formData.append("rackId", data.rackId);
+
+    if (photoFile) {
+      formData.append("photo", photoFile); // nombre de campo EXACTO "photo"
+    }
+
+    const res = await fetch("/api/garments", {
+      method: "POST",
+      headers: {
+        ...getAuthHeaders(), // importante: NO poner Content-Type aquí
+      },
+      body: formData,
+    });
+
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text || res.statusText);
+    }
+
+    return res.json();
+  },
+});
+```
+
+> Nota: no uses `Content-Type: application/json` cuando envías `FormData`.
+
+### 1.2. Backend – ruta `POST /api/garments`
+
+3. Asegurar que Multer se aplique siempre que sea multipart
+
+La estructura actual ya funciona si llega `multipart/form-data` con campo `photo`. Solo confirmaría:
+
+* Que el middleware:
+
+```ts
+if (req.is('multipart/form-data')) {
+  return upload.single("photo")(req, res, next);
+}
+```
+
+se ejecuta antes del handler principal.
+
+* No hace falta cambiar la lógica de:
+
+```ts
+const photoUrl = req.file
+  ? `/uploads/${req.file.filename}`
+  : (bodyPhotoUrl || null);
+```
+
+porque ahora `req.file` sí se llenará y `photoUrl` quedará como `/uploads/...`.
+
+---
+
+## 2. Eliminación correcta de contenidos (mensajes claros)
+
+### 2.1. Backend – devolver mensaje limpio ya está OK
+
+Ya haces algo así:
+
+```ts
+return res.status(400).json({
+  statusCode: 400,
+  message: `Cannot delete category: ${garmentsWithCategory.length} garment(s)...`,
+});
+```
+
+Eso está bien. No hay que tocarlo.
+
+### 2.2. Frontend – parsear bien el error en `apiRequest`
+
+4. Modificar `throwIfResNotOk` para intentar leer JSON y extraer `message`:
+
+```ts
+async function throwIfResNotOk(res: Response) {
+  if (!res.ok) {
+    let message = res.statusText;
+    try {
+      const data = await res.json();
+      message = data.message || message;
+    } catch {
+      const text = await res.text();
+      if (text) message = text;
+    }
+    throw new Error(message);
+  }
+}
+```
+
+5. Mantener los `toasts` pero ahora se verá un mensaje legible:
+
+```ts
+onError: (error: any) => {
+  toast({
+    title: "Error al eliminar categoría",
+    description: error?.message || "No se pudo eliminar la categoría",
+    variant: "destructive",
+  });
+},
+```
+
+### 2.3. UX para prevenir borrado de elementos con prendas asociadas
+
+6. Incluir conteo de prendas en las respuestas de: categorías, tipos, colecciones, lotes, racks
+
+* En cada endpoint `GET /api/categories`, `GET /api/racks`, etc., añade a cada ítem un campo `garmentCount` (JOIN o subquery).
+* Frontend: mostrar un badge tipo “3 prendas” y:
+
+  * Deshabilitar el botón Delete si `garmentCount > 0`, o
+  * Mostrar tooltip “No puedes eliminar: hay prendas asociadas”.
+
+---
+
+## 3. Team: usuarios visibles, editables y eliminables
+
+### 3.1. Backend – rutas de usuarios
+
+7. Añadir `GET /api/users` (solo ADMIN/CURATOR):
+
+* Devuelve lista de usuarios con: `id, name, email, role, createdAt`.
+
+8. Añadir `PATCH /api/users/:id`:
+
+* Campos editables: `name`, `role`.
+* Proteger con rol `ADMIN` (o `CURATOR` si decides).
+
+9. Añadir `DELETE /api/users/:id`:
+
+* O hard delete, o soft delete (`active: false`).
+* Proteger con rol `ADMIN` o `CURATOR`.
+
+### 3.2. Frontend – página `curator-users`
+
+10. Añadir `useQuery` para listar usuarios:
+
+```ts
+const { data: users = [], isLoading, error } = useQuery<User[]>({
+  queryKey: ["/api/users"],
+});
+```
+
+11. Mostrar tabla o grid de usuarios:
+
+* Columnas: Nombre, Email, Rol, Acciones.
+* Botones: Editar, Eliminar.
+
+12. Reutilizar el mismo `Dialog` para crear/editar:
+
+* Si `userToEdit` existe → carga valores en el formulario y llama `PATCH /api/users/:id`.
+* Si no → `POST /api/users`.
+
+13. Botón “Eliminar”:
+
+* `AlertDialog` de confirmación.
+* Llamada a `DELETE /api/users/:id`.
+* `invalidateQueries(["/api/users"])` al terminar.
+
+---
+
+## 4. Buscador que “sí funciona”
+
+### 4.1. Backend – generalizar búsqueda con parámetro `q`
+
+14. En `GET /api/garments`, leer un query param `q` opcional:
+
+```ts
+const { q, ...otherFilters } = req.query;
+```
+
+15. En `storage.searchGarments`, añadir lógica:
+
+* Si `q` existe, usar `LIKE` en varios campos:
+
+Pseudo:
+
+```ts
+if (filters.q) {
+  const pattern = `%${filters.q}%`;
+  conditions.push(
+    or(
+      like(garments.code, pattern),
+      like(garments.color, pattern),
+      like(garments.description, pattern),
+    )
+  );
+}
+```
+
+(Usa el equivalente real en tu ORM).
+
+16. Mantener filtros específicos (`categoryId`, `rackId`, etc.) como ahora.
+
+### 4.2. Frontend – página `/search`
+
+17. Cambiar construcción de query params:
+
+En vez de:
+
+```ts
+if (searchQuery) queryParams.append("code", searchQuery);
+```
+
+poner:
+
+```ts
+if (searchQuery) queryParams.append("q", searchQuery);
+```
+
+18. Mantener filtros laterales igual (categoryId, size, rackId, etc.).
+
+19. Asegurar que el placeholder sea honesto, por ejemplo:
+
+> “Busca por código, color o descripción”
+
+Ahora sí estará alineado con la lógica.
+
+---
+
+## 5. Rack Details: tarjetas de prendas y quick buttons
+
+### 5.1. Renderizar tarjetas de prendas en `/rack/:id`
+
+20. En la página de detalles de rack (por ejemplo `rack-detail.tsx`):
+
+* Actualmente tienes algo como:
+
+```tsx
+{garments.length === 0 ? (
+  ...
+) : (
+  <div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+    {/* Falta el map aquí */}
+  </div>
+)}
+```
+
+* Completar:
+
+```tsx
+<div className="grid gap-4 grid-cols-1 md:grid-cols-2">
+  {garments.map((garment) => (
+    <Link key={garment.id} href={`/garment/${garment.id}`}>
+      <Card className="hover:border-primary cursor-pointer">
+        <CardHeader>
+          <CardTitle className="flex justify-between items-center">
+            <span>{garment.code}</span>
+            <Badge>{garment.size}</Badge>
+          </CardTitle>
+          <CardDescription>
+            {garment.color} • {garment.gender.toLowerCase()}
+          </CardDescription>
+        </CardHeader>
+      </Card>
+    </Link>
+  ))}
+</div>
+```
+
+### 5.2. Botón “Print QR Code” en Rack Details
+
+21. Añadir `onClick` que lleve a la vista de impresión:
+
+Ejemplo:
+
+```tsx
+const router = useRouter(); // o navigate equivalente
+const rackId = params.id;
+
+<Button
+  className="w-full"
+  variant="outline"
+  onClick={() => router.push(`/curator/print-qrs?rackId=${rackId}`)}
+>
+  <QrCodeIcon className="mr-2 h-4 w-4" />
+  Print QR Code
+</Button>
+```
+
+Luego, en `/curator/print-qrs`, si llega `rackId` en query, preseleccionar el QR de ese rack.
+
+### 5.3. Botón “Move All Garments”
+
+Opción mínima viable:
+
+22. Abrir un `Dialog` para seleccionar rack destino:
+
+* Select de racks (`/api/racks`).
+* Botón “Mover todas las prendas”.
+
+23. Backend – endpoint de “bulk move”:
+
+* Añadir `POST /api/racks/:id/move-all`:
+
+  * Body: `{ toRackId, status? }`
+  * Lógica:
+
+    * Buscar todas las prendas en rack `:id`.
+    * En una transacción:
+
+      * Actualizar `rackId` de cada prenda a `toRackId`.
+      * Crear registros en `Movement` para cada una.
+
+24. Frontend:
+
+* En `onConfirm` del dialog, llamar a `/api/racks/:rackId/move-all`.
+* Refrescar la vista (`invalidateQueries` del rack, garments, etc.).
+
+---
+
+## 6. Escáner QR del curador: robustez mínima
+
+25. Revisar función `isValidCode`:
+
+* Hacerla coherente con el formato real de `code` (por ejemplo: alfanumérico + guiones).
+* O hacerla más permisiva para no marcar como inválido algo legítimo.
+
+26. Mejorar UX de errores:
+
+* Cuando se detecta QR inválido:
+
+  * Mostrar mensaje claro: “Este QR no pertenece al sistema de inventario”.
+  * Botón “Volver a escanear” que reactive `react-qr-reader` (`setIsScanning(true)`).
+
+---
+
+## 7. Manejo centralizado de errores en el dashboard
+
+27. Crear un helper genérico, por ejemplo `showApiError(toast, error, contexto)`:
+
+```ts
+export function showApiError(toast, error: any, context: string) {
+  const message = error?.message || "Ha ocurrido un error inesperado.";
+  toast({
+    title: `Error en ${context}`,
+    description: message,
+    variant: "destructive",
+  });
+}
+```
+
+28. Reemplazar los `onError` repetidos en todas las pantallas del curador para usar este helper.
+
+---
+
+Con este listado:
+
+* Arreglas la carga de fotos (técnico y UX).
+* Haces que los mensajes de eliminación sean claros y útiles.
+* Vuelves real la gestión de equipo (usuarios).
+* Haces que el buscador haga lo que el usuario espera.
+* Vuelves útil la vista de Rack: muestra prendas y botones funcionan.
+* Dejas el escáner QR menos frágil.
+* Y estandarizas el manejo de errores.
+
+Si quieres, el siguiente paso puede ser que elijamos uno de los bloques (por ejemplo, fotos + buscador) y te escribo el código exacto ya listo para pegar.

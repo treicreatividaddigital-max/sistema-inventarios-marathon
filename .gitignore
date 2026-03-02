@@ -40,3 +40,12 @@ replit.nix
 
 # OS
 Thumbs.db
+
+# Prevent accidental duplicated files
+* 2.ts
+* 2.tsx
+* 2.js
+* 2.jsx
+* 2.json
+* 2.css
+* 2.md

@@ -12,27 +12,8 @@
         {
           "source": "**",
           "run": {
-            "serviceId": "ms-inv-qa",
+            "serviceId": "ms-inv-prod",
             "region": "us-central1"
-          }
-        }
-      ]
-    },
-    {
-      "target": "archive-marathon-qa",
-      "public": "public",
-      "ignore": [
-        "firebase.json",
-        "**/.*",
-        "**/node_modules/**"
-      ],
-      "rewrites": [
-        {
-          "source": "**",
-          "run": {
-            "serviceId": "ms-inv-qa",
-            "region": "us-central1",
-            "tag": "test-4photos"
           }
         }
       ]

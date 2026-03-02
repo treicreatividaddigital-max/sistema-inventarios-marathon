@@ -7,18 +7,21 @@ const app = express();
 // Cloud Run sits behind a proxy/load balancer; required for accurate client IP in rate limiting
 app.set("trust proxy", 1);
 
-declare module 'http' {
+declare module "http" {
   interface IncomingMessage {
-    rawBody: unknown
+    rawBody: unknown;
   }
 }
-app.use(express.json({
-  limit: '50mb',
-  verify: (req, _res, buf) => {
-    req.rawBody = buf;
-  }
-}));
-app.use(express.urlencoded({ extended: false, limit: '50mb' }));
+
+app.use(
+  express.json({
+    limit: "50mb",
+    verify: (req, _res, buf) => {
+      req.rawBody = buf;
+    },
+  }),
+);
+app.use(express.urlencoded({ extended: false, limit: "50mb" }));
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -37,12 +40,16 @@ app.use((req, res, next) => {
       let logLine = `${req.method} ${path} ${res.statusCode} in ${duration}ms`;
       if (capturedJsonResponse) {
         // Avoid leaking sensitive payloads (e.g., auth tokens) into logs
-        const safeBody =
-          path.startsWith("/api/auth")
-            ? undefined
-            : (typeof capturedJsonResponse === "object" && capturedJsonResponse !== null && !Array.isArray(capturedJsonResponse))
-                ? { ...(capturedJsonResponse as any), token: (capturedJsonResponse as any).token ? "[REDACTED]" : (capturedJsonResponse as any).token }
-                : capturedJsonResponse;
+        const safeBody = path.startsWith("/api/auth")
+          ? undefined
+          : typeof capturedJsonResponse === "object" &&
+              capturedJsonResponse !== null &&
+              !Array.isArray(capturedJsonResponse)
+            ? {
+                ...(capturedJsonResponse as any),
+                token: (capturedJsonResponse as any).token ? "[REDACTED]" : (capturedJsonResponse as any).token,
+              }
+            : capturedJsonResponse;
 
         if (safeBody !== undefined) {
           logLine += ` :: ${JSON.stringify(safeBody)}`;
@@ -66,7 +73,6 @@ app.use((req, res, next) => {
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
     const status = err.status || err.statusCode || 500;
     const message = err.message || "Internal Server Error";
-
     res.status(status).json({ message });
     return;
   });
@@ -82,12 +88,18 @@ app.use((req, res, next) => {
 
   // ALWAYS serve the app on the port specified in the environment variable PORT
   // Other ports are firewalled. Default to 5000 if not specified.
-  // this serves both the API and the client.
-  // It is the only port that is not firewalled.
-  const port = parseInt(process.env.PORT || '5000', 10);
-  // Cloud Run requires binding to 0.0.0.0; local dev should bind to 127.0.0.1
-  const host = process.env.HOST || (process.env.K_SERVICE ? '0.0.0.0' : '127.0.0.1');
+  const port = parseInt(process.env.PORT || "5000", 10);
+
+  /**
+   * Host binding rules:
+   * - Local dev (NODE_ENV=development): bind to 127.0.0.1 by default to avoid macOS/Node ENOTSUP on 0.0.0.0
+   * - Production (Cloud Run): bind to 0.0.0.0
+   * - Explicit override: HOST env var wins
+   */
+  const env = app.get("env"); // "development" | "production" | etc.
+  const host = process.env.HOST || (env === "development" ? "127.0.0.1" : "0.0.0.0");
+
   server.listen(port, host, () => {
-log(`serving on port ${port}`);
+    log(`serving on http://${host}:${port}`);
   });
 })();

@@ -7,9 +7,6 @@
       "hosting": {
         "archive-marathon": [
           "archive-marathon"
-        ],
-        "archive-marathon-qa": [
-          "archive-marathon-qa"
         ]
       }
     }

@@ -8,11 +8,6 @@ import { fileURLToPath } from "url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Repo root: /server/..
-// Client root: /client
-const REPO_ROOT = path.resolve(__dirname, "..");
-const CLIENT_ROOT = path.resolve(REPO_ROOT, "client");
-
 export function log(message: string, source = "express") {
   const formattedTime = new Date().toLocaleTimeString("en-US", {
     hour: "numeric",
@@ -32,53 +27,61 @@ export async function setupVite(app: Express, server: Server) {
 
   const viteLogger = createLogger();
 
+  const host = process.env.HOST || "127.0.0.1";
+  const port = Number(process.env.PORT || "5000");
+
   const vite = await createViteServer({
-    // CLAVE: el root del dev server debe ser /client
-    root: CLIENT_ROOT,
+    root: path.resolve(__dirname, "..", "client"),
+    configFile: path.resolve(__dirname, "..", "vite.config.ts"),
     appType: "custom",
     server: {
       middlewareMode: true,
-      // HMR sobre el mismo server HTTP que ya levanta Express
-      hmr: { server },
+      // forzar que HMR use el mismo host/puerto donde corre Express
+      hmr: {
+        server,
+        host,
+        port,
+        clientPort: port,
+      },
       allowedHosts: true,
-      fs: {
-        strict: true,
-        allow: [
-          CLIENT_ROOT,
-          path.resolve(REPO_ROOT, "shared"),
-          path.resolve(REPO_ROOT, "attached_assets"),
-        ],
-      },
-    },
-    resolve: {
-      alias: {
-        "@": path.resolve(CLIENT_ROOT, "src"),
-        "@shared": path.resolve(REPO_ROOT, "shared"),
-        "@assets": path.resolve(REPO_ROOT, "attached_assets"),
-      },
     },
     customLogger: {
       ...viteLogger,
       error: (msg: any, options: any) => {
         viteLogger.error(msg, options);
-        // en dev preferimos fallar duro si Vite no puede transformar
         process.exit(1);
       },
     },
   });
 
+  // Vite middlewares (sirve /@vite/client, /src/*, etc.)
   app.use(vite.middlewares);
 
-  // IMPORTANT: never SPA-fallback API routes
+  // SOLO HTML fallback. Nunca interceptar assets de Vite.
   app.use("*", async (req, res, next) => {
-    try {
-      if (req.path?.startsWith("/api/")) return next();
+    const url = req.originalUrl;
 
-      const url = req.originalUrl;
-      const clientTemplate = path.resolve(CLIENT_ROOT, "index.html");
+    // Dejar que Vite maneje sus rutas internas y módulos
+    if (
+      url.startsWith("/@vite/") ||
+      url.startsWith("/@fs/") ||
+      url.startsWith("/@id/") ||
+      url.startsWith("/src/") ||
+      url.startsWith("/node_modules/")
+    ) {
+      return next();
+    }
+
+    // Si no es navegación HTML, no forzar index
+    const accept = req.headers["accept"] || "";
+    if (typeof accept === "string" && !accept.includes("text/html")) {
+      return next();
+    }
+
+    try {
+      const clientTemplate = path.resolve(__dirname, "..", "client", "index.html");
       const template = await fs.promises.readFile(clientTemplate, "utf-8");
       const page = await vite.transformIndexHtml(url, template);
-
       res.status(200).set({ "Content-Type": "text/html" }).end(page);
     } catch (e) {
       vite.ssrFixStacktrace(e as Error);
@@ -88,9 +91,7 @@ export async function setupVite(app: Express, server: Server) {
 }
 
 export function serveStatic(app: Express) {
-  // OJO: en build, vite produce en dist/public
-  // Este archivo vive en /server, así que dist/public es ../dist/public
-  const distPath = path.resolve(REPO_ROOT, "dist", "public");
+  const distPath = path.resolve(__dirname, "public");
 
   if (!fs.existsSync(distPath)) {
     throw new Error(`Could not find the build directory: ${distPath}`);
@@ -154,6 +155,10 @@ export function serveStatic(app: Express) {
     if (req.path?.startsWith("/api/")) return next();
 
     setNoStore(res, "spa-fallback");
+
+    // IMPORTANT: never SPA-fallback API routes
+    if (req.path.startsWith("/api/")) return res.status(404).json({ message: "Not Found" });
+
     res.type("text/html").send(indexHtml);
   });
 }

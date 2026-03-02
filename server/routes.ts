@@ -145,6 +145,23 @@ async function uploadToGCS(file: Express.Multer.File): Promise<string> {
   return objectName;
 }
 
+async function saveToUploads(file: Express.Multer.File): Promise<string> {
+  const fs = await import("fs");
+  if (!fs.existsSync("uploads")) fs.mkdirSync("uploads");
+  const ext = extFromMime(file.mimetype, file.originalname);
+  const objectName = `photo-${Date.now()}-${randomUUID()}${ext}`;
+  const outPath = path.resolve("uploads", objectName);
+  await fs.promises.writeFile(outPath, file.buffer);
+  return objectName;
+}
+
+function buildPhotoUrl(objectName: string): string {
+  // Cloud Run (GCS): servimos por /api/photos/:name
+  if (gcsBucket) return `/api/photos/${objectName}`;
+  // Local: servimos por /uploads
+  return `/uploads/${objectName}`;
+}
+
 
 const upload = multer({
   // Cloud Run: evitar DiskStorage/fs. Siempre usar memoryStorage.
@@ -1330,10 +1347,15 @@ app.post(
       if (files.length) {
         for (const f of files.slice(0, 4)) {
           if (gcsBucket) {
-            const objectName = await uploadToGCS(f);
-            photoUrls.push(`/api/photos/${encodeURIComponent(objectName)}`);
+            const objectName = gcsBucket
+              ? await uploadToGCS(f)
+              : await saveToUploads(f);
+            photoUrls.push(buildPhotoUrl(objectName));
           } else {
-            photoUrls.push(`/uploads/${(f as any).filename}`);
+            const objectName = gcsBucket
+              ? await uploadToGCS(f)
+              : await saveToUploads(f);
+            photoUrls.push(buildPhotoUrl(objectName));
           }
         }
       }
@@ -1398,10 +1420,15 @@ app.patch(
       if (files.length) {
         for (const f of files.slice(0, 4)) {
           if (gcsBucket) {
-            const objectName = await uploadToGCS(f);
-            finalPhotoUrls.push(`/api/photos/${encodeURIComponent(objectName)}`);
+            const objectName = gcsBucket
+              ? await uploadToGCS(f)
+              : await saveToUploads(f);
+            finalPhotoUrls.push(buildPhotoUrl(objectName));
           } else {
-            finalPhotoUrls.push(`/uploads/${(f as any).filename}`);
+            const objectName = gcsBucket
+              ? await uploadToGCS(f)
+              : await saveToUploads(f);
+            finalPhotoUrls.push(buildPhotoUrl(objectName));
           }
         }
       }

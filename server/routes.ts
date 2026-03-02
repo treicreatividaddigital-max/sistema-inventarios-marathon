@@ -358,6 +358,14 @@ app.get("/api/version", (_req, res) => {
   });
 });
 
+app.get("/api/health", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "ms-inv",
+    timestamp: new Date().toISOString(),
+  });
+});
+
   // Uploads:
 // - Local dev: store files in ./uploads and serve at /uploads
 // - Cloud Run: store files in Google Cloud Storage (GCS_BUCKET) and serve via /api/photos/:name

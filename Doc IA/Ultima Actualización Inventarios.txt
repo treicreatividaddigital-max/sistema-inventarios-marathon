@@ -1,0 +1,367 @@
+============================================================
+INFORME DE CONTEXTO COMPLETO — ARCHIVE / MARATHON INVENTORY
+CONTINUACIÓN OPERATIVA DEL PROYECTO
+============================================================
+
+
+====================================================================
+1. RESUMEN DEL PROYECTO
+====================================================================
+
+ARCHIVE (Marathon Inventory System) es una plataforma profesional
+de gestión de inventario textil diseñada para operación retail física,
+logística interna y curaduría de prendas.
+
+El sistema permite:
+
+- Gestión completa de prendas (Garments)
+- Organización por racks, lotes y colecciones
+- Control de movimientos internos
+- Gestión fotográfica de inventario
+- Autenticación JWT
+- Control granular de roles
+- Operación cloud-native
+- Paridad total entre entorno LOCAL y PRODUCCIÓN
+
+Arquitectura general:
+
+FRONTEND
+- Vite + React
+- TailwindCSS
+- shadcn/ui
+- Firebase Hosting (Producción)
+
+BACKEND
+- Node.js
+- Express
+- TypeScript
+- API REST
+- JWT Authentication
+- Upload híbrido Local / Google Cloud Storage
+
+INFRAESTRUCTURA PRODUCCIÓN
+- Google Cloud Run → ms-inv-prod
+- Cloud SQL PostgreSQL
+- Google Cloud Storage (fotos)
+- Secret Manager (DATABASE_URL / JWT_SECRET)
+- Firebase Hosting → archive-marathon.web.app
+
+--------------------------------------------------
+
+ESTADO ACTUAL DEL SISTEMA
+
+✅ Producción estable operativa  
+✅ Backend funcional  
+✅ Health y Version endpoints activos  
+✅ Upload strategy dual funcionando  
+✅ Roles implementados  
+✅ Login JWT validado  
+✅ CloudSQL conectado correctamente  
+✅ Entorno LOCAL reconstruido completamente  
+✅ PostgreSQL local operativo  
+✅ Schema sincronizado mediante Drizzle  
+✅ Usuarios locales creados  
+✅ Login LOCAL validado vía API  
+
+OBJETIVO ACTUAL ALCANZADO:
+
+LOCAL = PRODUCCIÓN (paridad funcional alcanzada)
+
+El entorno LOCAL ahora replica correctamente el comportamiento
+del sistema productivo sin riesgo operativo.
+
+
+====================================================================
+2. ESTRUCTURA DE ARCHIVOS
+====================================================================
+
+Repositorio activo:
+
+Project/
+└── ARCHIVE/
+
+--------------------------------------------------
+Estructura principal
+--------------------------------------------------
+
+ARCHIVE/
+│
+├── client/
+│   ├── index.html
+│   └── src/
+│       ├── main.tsx
+│       ├── App.tsx
+│       ├── pages/
+│       ├── components/
+│       └── lib/
+│
+├── server/
+│   ├── index.ts
+│   ├── routes.ts
+│   ├── db.ts
+│   ├── auth.ts
+│   ├── middleware/
+│   └── uploads/
+│
+├── shared/
+│   └── schema.ts
+│
+├── drizzle.config.ts
+├── package.json
+├── tsconfig.json
+├── vite.config.ts
+├── tailwind.config.ts
+└── .env
+
+
+--------------------------------------------------
+server/index.ts
+--------------------------------------------------
+
+Responsabilidades:
+
+- Carga dotenv
+- Inicializa Express
+- Registra rutas API
+- Inicia servidor local
+
+Estructura funcional:
+
+import "dotenv/config";
+
+const server = await registerRoutes(app);
+
+app.listen(5000);
+
+
+--------------------------------------------------
+server/db.ts
+--------------------------------------------------
+
+Inicializa conexión PostgreSQL usando:
+
+process.env.DATABASE_URL
+
+Fail-fast:
+
+throw new Error("DATABASE_URL is not set");
+
+
+--------------------------------------------------
+server/routes.ts
+--------------------------------------------------
+
+Archivo CENTRAL del backend.
+
+Define endpoints:
+
+AUTH
+USERS
+GARMENTS
+UPLOADS
+PHOTOS
+VERSION
+HEALTH
+
+Endpoints críticos:
+
+GET /api/health
+GET /api/version
+POST /api/auth/login
+
+Upload Strategy:
+
+LOCAL:
+→ server/uploads
+→ servido vía /uploads
+
+CLOUD RUN:
+→ Google Cloud Storage
+→ servido vía /api/photos/:name
+
+
+Helper crítico:
+
+function buildPhotoUrl(objectName: string) {
+  if (gcsBucket) return `/api/photos/${objectName}`;
+  return `/uploads/${objectName}`;
+}
+
+
+--------------------------------------------------
+ROLES IMPLEMENTADOS
+--------------------------------------------------
+
+ENUM:
+
+ADMIN
+CURATOR
+USER
+
+Modelo operativo:
+
+ADMIN
+→ Solo lectura
+
+CURATOR
+→ Gestión inventario
+
+SUPER CURATOR
+→ CURATOR cuyo email coincide con:
+PRIMARY_CURATOR_EMAIL
+
+
+.env:
+
+PRIMARY_CURATOR_EMAIL=curator@inventory.com
+
+
+--------------------------------------------------
+BASE DE DATOS LOCAL
+--------------------------------------------------
+
+Motor:
+PostgreSQL 16 (Homebrew)
+
+Cluster local:
+/usr/local/var/postgresql@16
+
+Base creada:
+marathon_inventory_local
+
+Tablas activas:
+
+categories
+collections
+garment_types
+garments
+lots
+movements
+racks
+users
+
+
+Usuarios seed LOCAL:
+
+curator@inventory.com → CURATOR
+admin@inventory.com   → ADMIN
+
+Password:
+ChangeMe123!
+
+
+====================================================================
+3. ÚLTIMAS INSTRUCCIONES DADAS
+====================================================================
+
+Situación exacta antes del cambio de chat:
+
+Se completó exitosamente la reconstrucción total del entorno LOCAL.
+
+Problemas resueltos durante la sesión:
+
+- PostgreSQL no disponible en PATH
+- LaunchAgent Homebrew corrupto
+- Servicio PostgreSQL no iniciaba
+- Data directory inexistente
+- Inicialización manual mediante initdb
+- Arranque manual pg_ctl
+- Creación DB local
+- Aplicación schema con drizzle-kit push
+- Creación extensión pgcrypto
+- Seed manual de usuarios
+- Generación hash bcrypt compatible
+- Corrección password_hash incorrecto
+- Validación login API local
+
+Validaciones finales realizadas:
+
+GET /api/health ✅  
+GET /api/version ✅  
+POST /api/auth/login ✅  
+
+Sistema LOCAL completamente operativo.
+
+Último requerimiento del usuario:
+Generar informe de continuidad para migrar conversación
+a nuevo chat sin pérdida de contexto.
+
+
+====================================================================
+4. METODOLOGÍA DE TRABAJO ESTABLECIDA
+====================================================================
+
+Principios operativos obligatorios:
+
+✅ Código siempre completo  
+Nunca fragmentos parciales.
+
+✅ Ruta exacta del archivo indicada siempre.
+
+✅ El código entregado reemplaza archivo completo.
+
+✅ Instrucciones terminal:
+- paso a paso
+- copy/paste directo
+- sin interpretación
+
+✅ Trabajo visual orientado a VS Code:
+carpetas → archivos → ejecución.
+
+✅ LOCAL primero → QA → PRODUCCIÓN.
+
+✅ Diagnóstico basado únicamente en outputs reales.
+
+✅ Backups implícitos antes de cambios críticos.
+
+✅ Flujo secuencial dependiente:
+
+NO se avanza al siguiente paso hasta que el usuario
+confirme explícitamente haber terminado el anterior.
+
+El asistente debe esperar confirmación antes de continuar.
+
+
+====================================================================
+5. PENDIENTES Y PRÓXIMOS PASOS
+====================================================================
+
+ESTADO ACTUAL EXACTO:
+
+✔ Backend LOCAL funcionando  
+✔ PostgreSQL LOCAL activo  
+✔ Schema sincronizado  
+✔ Usuarios creados  
+✔ Login validado  
+✔ Paridad LOCAL ≈ PRODUCCIÓN alcanzada  
+
+--------------------------------------------------
+
+PRÓXIMOS PASOS NATURALES
+
+1. Validación completa Frontend ↔ Backend LOCAL
+2. Validar uploads locales desde UI
+3. Crear flujo formal:
+   LOCAL → QA → PROD
+4. Limpieza técnica final del repositorio
+5. Eliminación de ramas históricas
+6. Definir pipeline de deploy controlado
+7. Estabilización permisos curator/admin
+8. Inicio nueva fase funcional Inventory
+
+--------------------------------------------------
+
+PUNTO EXACTO DONDE SE RETOMA:
+
+Sistema LOCAL completamente operativo y listo
+para desarrollo seguro.
+
+El siguiente paso dependerá de decisión del usuario:
+validación UI o inicio de nuevas funcionalidades.
+
+El asistente debe esperar instrucciones explícitas
+antes de continuar.
+
+============================================================
+FIN DEL INFORME DE CONTEXTO
+============================================================

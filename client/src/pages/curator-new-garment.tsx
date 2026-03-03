@@ -1,3 +1,4 @@
+// client/src/pages/curator-new-garment.tsx
 import { useEffect, useRef, useState } from "react";
 import { z } from "zod";
 import { useForm } from "react-hook-form";
@@ -8,23 +9,10 @@ import { apiRequest, getQueryFn, invalidateGarmentQueries } from "@/lib/queryCli
 import { useToast } from "@/hooks/use-toast";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import {
-  Form,
-  FormControl,
-  FormField,
-  FormItem,
-  FormLabel,
-  FormMessage,
-} from "@/components/ui/form";
+import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -36,6 +24,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { useAuth } from "@/lib/auth-context";
+import SearchableSelect from "@/components/ui/searchable-select";
 
 // 3 pasos: datos base, ubicación, fotos
 const formSchema = z.object({
@@ -54,8 +43,15 @@ const formSchema = z.object({
 });
 
 type FormData = z.infer<typeof formSchema>;
-
 type PhotoItem = { file: File; previewUrl: string };
+
+const SIZE_OPTIONS = [
+  { value: "XS", label: "XS" },
+  { value: "S", label: "S" },
+  { value: "M", label: "M" },
+  { value: "L", label: "L" },
+  { value: "XL", label: "XL" },
+];
 
 export default function CuratorNewGarment() {
   const { user } = useAuth();
@@ -81,7 +77,7 @@ export default function CuratorNewGarment() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       code: "",
-      size: "",
+      size: "M", // default
       color: "",
       gender: "UNISEX",
       status: "IN_STOCK",
@@ -100,14 +96,13 @@ export default function CuratorNewGarment() {
   // Cascada: si cambia el padre, limpiar el hijo
   useEffect(() => {
     form.setValue("garmentTypeId", "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryId]);
 
   useEffect(() => {
     form.setValue("lotId", "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionId]);
-
-
-
 
   // 1) Traer el siguiente código automáticamente
   const nextCodeQuery = useQuery<{ code: string }>({
@@ -120,6 +115,7 @@ export default function CuratorNewGarment() {
     if (!code) return;
     const current = form.getValues("code");
     if (!current) form.setValue("code", code);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nextCodeQuery.data?.code]);
 
   // 2) Datos para selects
@@ -182,13 +178,21 @@ export default function CuratorNewGarment() {
   }
 
   const createMutation = useMutation({
-    mutationFn: async (data: FormData) => {
+    mutationFn: async (data: any) => {
       const fd = new window.FormData();
 
       // Nota: el backend genera el code si viene vacío.
+      // En creación, enviamos "description" incluso si está vacío para evitar ambigüedad null/"".
       Object.entries(data).forEach(([key, value]) => {
         if (value === undefined || value === null) return;
-        if (typeof value === "string" && value.trim() === "") return;
+
+        if (typeof value === "string") {
+          // Permitimos enviar description vacío
+          if (key !== "description" && value.trim() === "") return;
+          fd.append(key, value);
+          return;
+        }
+
         fd.append(key, String(value));
       });
 
@@ -205,8 +209,21 @@ export default function CuratorNewGarment() {
         description: "The garment has been created successfully.",
       });
 
-      // Reset
-      form.reset();
+      // Reset (mantener defaults)
+      form.reset({
+        code: "",
+        size: "M",
+        color: "",
+        gender: "UNISEX",
+        status: "IN_STOCK",
+        categoryId: "",
+        garmentTypeId: "",
+        collectionId: "",
+        lotId: "",
+        rackId: "",
+        description: "",
+      });
+
       // limpiar previews
       setPhotos((prev) => {
         prev.forEach((p) => URL.revokeObjectURL(p.previewUrl));
@@ -236,7 +253,7 @@ export default function CuratorNewGarment() {
             <CardTitle>Access Denied</CardTitle>
           </CardHeader>
           <CardContent>
-            <p>You don't have permission to create garments.</p>
+            <p>You don&apos;t have permission to create garments.</p>
           </CardContent>
         </Card>
       </div>
@@ -251,10 +268,7 @@ export default function CuratorNewGarment() {
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form
-              onSubmit={form.handleSubmit((data) => createMutation.mutate(data))}
-              className="space-y-6"
-            >
+            <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="space-y-6">
               {/* CODE (autogenerado) */}
               <FormField
                 control={form.control}
@@ -263,11 +277,7 @@ export default function CuratorNewGarment() {
                   <FormItem>
                     <FormLabel>Garment Code (auto)</FormLabel>
                     <FormControl>
-                      <Input
-                        {...field}
-                        disabled
-                        placeholder={nextCodeQuery.isLoading ? "Generating..." : ""}
-                      />
+                      <Input {...field} disabled placeholder={nextCodeQuery.isLoading ? "Generating..." : ""} />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -282,7 +292,12 @@ export default function CuratorNewGarment() {
                   <FormItem>
                     <FormLabel>Size</FormLabel>
                     <FormControl>
-                      <Input {...field} placeholder="e.g. M" />
+                      <SearchableSelect
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder="Select size"
+                        options={SIZE_OPTIONS}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -361,20 +376,19 @@ export default function CuratorNewGarment() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Category</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select category" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {(categories as any[] | undefined)?.map((c: any) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <SearchableSelect
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder="Select category"
+                        options={
+                          ((categories as any[] | undefined) ?? []).map((c: any) => ({
+                            value: c.id,
+                            label: c.name,
+                          })) ?? []
+                        }
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -387,20 +401,18 @@ export default function CuratorNewGarment() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Garment Type</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select type" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {(garmentTypes as any[] | undefined)?.map((t: any) => (
-                          <SelectItem key={t.id} value={t.id}>
-                            {t.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <SearchableSelect
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder={categoryId ? "Select type" : "Select category first"}
+                        disabled={!categoryId}
+                        options={((garmentTypes as any[] | undefined) ?? []).map((t: any) => ({
+                          value: t.id,
+                          label: t.name,
+                        }))}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -413,20 +425,17 @@ export default function CuratorNewGarment() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Collection</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select collection" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {(collections as any[] | undefined)?.map((c: any) => (
-                          <SelectItem key={c.id} value={c.id}>
-                            {c.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <FormControl>
+                      <SearchableSelect
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder="Select collection"
+                        options={((collections as any[] | undefined) ?? []).map((c: any) => ({
+                          value: c.id,
+                          label: c.name,
+                        }))}
+                      />
+                    </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -439,65 +448,46 @@ export default function CuratorNewGarment() {
                 render={({ field }) => (
                   <FormItem>
                     <FormLabel>Lot</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select lot" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {(lots as any[] | undefined)?.map((l: any) => (
-                          <SelectItem key={l.id} value={l.id}>
-                            {l.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* RACK (opcional) */}
-              <FormField
-                control={form.control}
-                name="rackId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Rack</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger>
-                          <SelectValue placeholder="Select rack" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>                        {(racks as any[] | undefined)?.map((r: any) => (
-                          <SelectItem key={r.id} value={r.id}>
-                            {r.code} - {r.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {/* DESCRIPTION */}
-              <FormField
-                control={form.control}
-                name="description"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Description (optional)</FormLabel>
                     <FormControl>
-                      <Textarea {...field} placeholder="Notes..." />
+                      <SearchableSelect
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder={collectionId ? "Select lot" : "Select collection first"}
+                        disabled={!collectionId}
+                        options={((lots as any[] | undefined) ?? []).map((l: any) => ({
+                          value: l.id,
+                          label: l.name,
+                        }))}
+                      />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
 
+              {/* RACK */}
+              <FormField
+                control={form.control}
+                name="rackId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Rack</FormLabel>
+                    <FormControl>
+                      <SearchableSelect
+                        value={field.value}
+                        onChange={field.onChange}
+                        placeholder="Select rack"
+                        options={((racks as any[] | undefined) ?? []).map((r: any) => ({
+                          value: r.id,
+                          label: `${r.code} - ${r.name}`,
+                        }))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+              
               {/* PHOTOS */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
@@ -509,11 +499,7 @@ export default function CuratorNewGarment() {
                   <div className="grid grid-cols-2 gap-2">
                     {photos.map((p, idx) => (
                       <div key={idx} className="relative overflow-hidden rounded-md border">
-                        <img
-                          src={p.previewUrl}
-                          alt={`Photo ${idx + 1}`}
-                          className="h-32 w-full object-cover"
-                        />
+                        <img src={p.previewUrl} alt={`Photo ${idx + 1}`} className="h-32 w-full object-cover" />
                         <Button
                           type="button"
                           variant="secondary"
@@ -586,9 +572,7 @@ export default function CuratorNewGarment() {
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Remove photo?</AlertDialogTitle>
-            <AlertDialogDescription>
-              This will remove the photo from this new garment form.
-            </AlertDialogDescription>
+            <AlertDialogDescription>This will remove the photo from this new garment form.</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>

@@ -49,3 +49,7 @@ Thumbs.db
 * 2.json
 * 2.css
 * 2.md
+
+# Local dev artifacts
+uploads/
+errors.txt

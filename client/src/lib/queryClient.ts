@@ -1,41 +1,83 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
 
+type UnauthorizedBehavior = "returnNull" | "throw";
+
+/**
+ * Safe response error parsing:
+ * - Reads body once (prevents "body stream already read")
+ * - Tries JSON first, falls back to text
+ */
 async function throwIfResNotOk(res: Response) {
-  if (!res.ok) {
-    let message = res.statusText;
-    try {
-      const data = await res.json();
-      message = data.message || message;
-    } catch {
-      const text = await res.text();
-      if (text) message = text;
-    }
-    throw new Error(message);
+  if (res.ok) return;
+
+  let message = res.statusText || "Request failed";
+
+  // Read once
+  let raw = "";
+  try {
+    raw = await res.text();
+  } catch {
+    raw = "";
   }
+
+  if (raw) {
+    // Try JSON
+    try {
+      const data = JSON.parse(raw);
+      if (data && typeof data === "object") {
+        const msg = (data as any).message;
+        if (typeof msg === "string" && msg.trim()) message = msg;
+        else message = raw;
+      } else {
+        message = raw;
+      }
+    } catch {
+      message = raw;
+    }
+  }
+
+  throw new Error(message);
 }
 
 function getAuthHeaders(): HeadersInit {
   const token = localStorage.getItem("token");
   const headers: HeadersInit = {};
-  
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  
+  if (token) headers["Authorization"] = `Bearer ${token}`;
   return headers;
+}
+
+async function parseJsonIfAny(res: Response): Promise<any> {
+  // 204 No Content or empty body
+  if (res.status === 204) return null;
+
+  const ct = res.headers.get("content-type") || "";
+  const raw = await res.text();
+  if (!raw) return null;
+
+  if (ct.includes("application/json")) {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      // Fall back to raw if server lied about content-type
+      return raw;
+    }
+  }
+
+  // Non-JSON (e.g. HTML error pages, plain text)
+  return raw;
 }
 
 export async function apiRequest(
   method: string,
   url: string,
-  data?: unknown | undefined,
+  data?: unknown,
 ): Promise<any> {
   const headers = new Headers(getAuthHeaders());
 
   let body: BodyInit | undefined = undefined;
 
   if (data instanceof FormData) {
-    // NO ponemos Content-Type, el navegador lo setea con boundary
+    // Do NOT set Content-Type; browser sets boundary
     body = data;
   } else if (data !== undefined) {
     headers.set("Content-Type", "application/json");
@@ -50,26 +92,23 @@ export async function apiRequest(
   });
 
   await throwIfResNotOk(res);
-  return await res.json();
+  return await parseJsonIfAny(res);
 }
 
-type UnauthorizedBehavior = "returnNull" | "throw";
-export const getQueryFn: <T>(options: {
-  on401: UnauthorizedBehavior;
-}) => QueryFunction<T> =
-  ({ on401: unauthorizedBehavior }) =>
+export const getQueryFn =
+  <T>(options: { on401: UnauthorizedBehavior }): QueryFunction<T> =>
   async ({ queryKey }) => {
     const res = await fetch(queryKey.join("/") as string, {
       credentials: "include",
       headers: getAuthHeaders(),
     });
 
-    if (unauthorizedBehavior === "returnNull" && res.status === 401) {
-      return null;
+    if (options.on401 === "returnNull" && res.status === 401) {
+      return null as any;
     }
 
     await throwIfResNotOk(res);
-    return await res.json();
+    return (await parseJsonIfAny(res)) as T;
   };
 
 export const queryClient = new QueryClient({
@@ -77,8 +116,8 @@ export const queryClient = new QueryClient({
     queries: {
       queryFn: getQueryFn({ on401: "throw" }),
       refetchInterval: false,
-      refetchOnWindowFocus: true, // Refetch on window focus to get fresh data
-      staleTime: 30000, // 30 seconds - allows fresh data after mutations
+      refetchOnWindowFocus: true,
+      staleTime: 30000,
       retry: false,
     },
     mutations: {
@@ -86,7 +125,6 @@ export const queryClient = new QueryClient({
     },
   },
 });
-
 
 /**
  * Invalidate any cached queries related to garments, regardless of how the queryKey was built.
@@ -96,10 +134,10 @@ export function invalidateGarmentQueries() {
   queryClient.invalidateQueries({
     predicate: (q) => {
       const key0 = (q.queryKey as any)?.[0];
-      return typeof key0 === 'string' && key0.startsWith('/api/garments');
+      return typeof key0 === "string" && key0.startsWith("/api/garments");
     },
   });
 
   // Stats depend on garment counts
-  queryClient.invalidateQueries({ queryKey: ['/api/stats'] });
+  queryClient.invalidateQueries({ queryKey: ["/api/stats"] });
 }

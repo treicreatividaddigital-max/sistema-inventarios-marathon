@@ -91,6 +91,7 @@ async function main() {
   // Extrae únicos
   const categoriesMap = new Map(); // key -> display
   const typesMap = new Map(); // key -> display
+  const categoryTypesMap = new Map(); // catKey -> Map(typeKey -> typeDisplay)
   const collectionsMap = new Map(); // key -> { name, year, type, description }
 
   for (const r of rows) {
@@ -107,6 +108,15 @@ async function main() {
     if (articulo) categoriesMap.set(keyOf(articulo), titleCase(articulo));
     if (tipo) typesMap.set(keyOf(tipo), titleCase(tipo));
 
+
+    // Mapear types SOLO dentro de su category (evita producto cartesiano)
+    if (articulo && tipo) {
+      const catKey = keyOf(articulo);
+      const typeKey = keyOf(tipo);
+      const typeDisplay = titleCase(tipo);
+      if (!categoryTypesMap.has(catKey)) categoryTypesMap.set(catKey, new Map());
+      categoryTypesMap.get(catKey).set(typeKey, typeDisplay);
+    }
     const parts = [];
     if (activo) parts.push(titleCase(activo));
     if (year) parts.push(String(year));
@@ -178,10 +188,14 @@ async function main() {
     categoriesInserted++;
   }
 
-  // GARMENT_TYPES por cada category
+  // GARMENT_TYPES por cada category (solo pairs category/type del Excel)
   let typesInserted = 0;
-  for (const [, catId] of categoryIdsByKey.entries()) {
-    for (const [, typeDisplay] of typesMap.entries()) {
+  for (const [catKey, catId] of categoryIdsByKey.entries()) {
+    const perCat = categoryTypesMap.get(catKey);
+    // Si no hay mapeo por categoría, no insertamos nada (más seguro que inventar combinaciones)
+    if (!perCat || perCat.size === 0) continue;
+
+    for (const [, typeDisplay] of perCat.entries()) {
       const found = await client.query(
         `select id from garment_types where category_id=$1 and lower(name)=lower($2) limit 1`,
         [catId, typeDisplay]
@@ -197,43 +211,7 @@ async function main() {
     }
   }
 
-  // COLLECTIONS
-  const collectionIdsByKey = new Map();
-  let collectionsInserted = 0;
-  for (const [k, c] of collectionsMap.entries()) {
-    const found = await client.query(`select id from collections where lower(name)=lower($1) limit 1`, [c.name]);
-    if (found.rowCount > 0) {
-      collectionIdsByKey.set(k, found.rows[0].id);
-      continue;
-    }
-    const ins = await client.query(
-      `insert into collections (id, name, type, year, description)
-       values (gen_random_uuid(), $1, $2, $3, $4)
-       returning id`,
-      [c.name, c.type, c.year, c.description]
-    );
-    collectionIdsByKey.set(k, ins.rows[0].id);
-    collectionsInserted++;
-  }
-
-  // LOTS: 1 por collection (idempotente)
-  let lotsInserted = 0;
-  for (const [k, collectionId] of collectionIdsByKey.entries()) {
-    const code = `INIT-${hash8(k)}`;
-    const exists = await client.query(`select 1 from lots where code=$1 limit 1`, [code]);
-    if (exists.rowCount > 0) continue;
-
-    await client.query(
-      `insert into lots (id, code, name, description, collection_id)
-       values (gen_random_uuid(), $1, $2, $3, $4)`,
-      [code, "LOTE-INICIAL", "Lote inicial autogenerado", collectionId]
-    );
-    lotsInserted++;
-  }
-
-  await client.end();
-
-  console.log("SEED OK");
+console.log("SEED OK");
   console.log({
     excel: EXCEL_PATH,
     sheet: sheetName,

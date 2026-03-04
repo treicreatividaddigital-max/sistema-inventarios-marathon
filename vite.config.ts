@@ -7,15 +7,10 @@ export default defineConfig({
   plugins: [
     react(),
     runtimeErrorOverlay(),
-    ...(process.env.NODE_ENV !== "production" &&
-    process.env.REPL_ID !== undefined
+    ...(process.env.NODE_ENV !== "production" && process.env.REPL_ID !== undefined
       ? [
-          await import("@replit/vite-plugin-cartographer").then((m) =>
-            m.cartographer(),
-          ),
-          await import("@replit/vite-plugin-dev-banner").then((m) =>
-            m.devBanner(),
-          ),
+          await import("@replit/vite-plugin-cartographer").then((m) => m.cartographer()),
+          await import("@replit/vite-plugin-dev-banner").then((m) => m.devBanner()),
         ]
       : []),
   ],
@@ -25,6 +20,12 @@ export default defineConfig({
       "@shared": path.resolve(import.meta.dirname, "shared"),
       "@assets": path.resolve(import.meta.dirname, "attached_assets"),
     },
+    // CRÍTICO: evita "Invalid hook call" por doble React en Vite/HMR
+    dedupe: ["react", "react-dom"],
+  },
+  optimizeDeps: {
+    // fuerza a Vite a prebundlear usando la misma instancia
+    include: ["react", "react-dom", "react-dom/client"],
   },
   root: path.resolve(import.meta.dirname, "client"),
   build: {

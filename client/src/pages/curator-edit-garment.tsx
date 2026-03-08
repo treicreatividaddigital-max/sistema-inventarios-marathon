@@ -4,7 +4,7 @@ import { z } from "zod";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { apiRequest, getQueryFn, invalidateGarmentQueries, queryClient } from "@/lib/queryClient";
+import { apiRequest, getQueryFn, invalidateGarmentQueries } from "@/lib/queryClient";
 import { useToast } from "@/hooks/use-toast";
 import { useAuth } from "@/lib/auth-context";
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
@@ -13,19 +13,11 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import {
-  AlertDialog,
-  AlertDialogAction,
-  AlertDialogCancel,
-  AlertDialogContent,
-  AlertDialogDescription,
-  AlertDialogFooter,
-  AlertDialogHeader,
-  AlertDialogTitle,
-} from "@/components/ui/alert-dialog";
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { Trash2, X } from "lucide-react";
 
 const formSchema = z.object({
+  // code no se puede cambiar (lo mostramos como readonly)
   size: z.string().min(1, "Size is required"),
   color: z.string().min(1, "Color is required"),
   gender: z.enum(["MALE", "FEMALE", "UNISEX"]),
@@ -33,13 +25,16 @@ const formSchema = z.object({
   categoryId: z.string().min(1, "Category is required"),
   garmentTypeId: z.string().min(1, "Type is required"),
   collectionId: z.string().min(1, "Collection is required"),
+  yearId: z.string().optional(),
   lotId: z.string().min(1, "Lot is required"),
-  rackId: z.string().optional(), // permitimos "" para "No rack"
-  description: z.string().optional(), // Notes
+  rackId: z.string().optional(),
+  description: z.string().optional(),
 });
 
 type FormValues = z.infer<typeof formSchema>;
+
 type PhotoItem = { file: File; previewUrl: string };
+type CustomFieldDef = { id: string; key: string; label: string; isRequired?: boolean; options: { id: string; value: string; label: string }[] };
 
 function makePreviewUrl(file: File) {
   return URL.createObjectURL(file);
@@ -51,11 +46,15 @@ export default function CuratorEditGarment() {
   const { toast } = useToast();
   const { user } = useAuth();
 
+  const isCurator = user?.role === "CURATOR";
   const isReadOnly = user?.role === "ADMIN" || user?.role === "USER";
+
+  // Server will still enforce master curator via PRIMARY_CURATOR_EMAIL.
   const canDeleteGarment = user?.isMasterCurator === true;
 
   const [existingPhotoUrls, setExistingPhotoUrls] = useState<string[]>([]);
   const [newPhotos, setNewPhotos] = useState<PhotoItem[]>([]);
+  const [customAttributes, setCustomAttributes] = useState<Record<string, string>>({});
 
   const [confirmState, setConfirmState] = useState<
     | { open: false }
@@ -78,14 +77,21 @@ export default function CuratorEditGarment() {
     queryKey: ["/api/categories"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
-
-  const collectionsQuery = useQuery({
+const collectionsQuery = useQuery({
     queryKey: ["/api/collections"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
-
-  const racksQuery = useQuery({
+const racksQuery = useQuery({
     queryKey: ["/api/racks"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+const yearsQuery = useQuery({
+    queryKey: ["/api/years"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+
+const customFieldsQuery = useQuery<CustomFieldDef[]>({
+    queryKey: ["/api/custom-fields/garment"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
 
@@ -101,18 +107,17 @@ export default function CuratorEditGarment() {
       categoryId: "",
       garmentTypeId: "",
       collectionId: "",
+      yearId: "",
       lotId: "",
       rackId: "",
       description: "",
     },
   });
 
-  const categoryId = form.watch("categoryId");
   const collectionId = form.watch("collectionId");
 
   const garmentTypesQuery = useQuery({
-    queryKey: ["/api/garment-types/by-category", categoryId],
-    enabled: !!categoryId,
+    queryKey: ["/api/garment-types"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
 
@@ -121,70 +126,47 @@ export default function CuratorEditGarment() {
     enabled: !!collectionId,
     queryFn: getQueryFn({ on401: "throw" }),
   });
-
-  // Cascada solo cuando el usuario cambia (no durante reset inicial)
-  const allowCascadeRef = useRef(false);
-
-  function resolveId(obj: any, directKey: string, nestedKey: string) {
-    const direct = obj?.[directKey];
-    if (typeof direct === "string" && direct.length > 0) return direct;
-
-    const nested = obj?.[nestedKey]?.id;
-    if (typeof nested === "string" && nested.length > 0) return nested;
-
-    return "";
-  }
+  // Cascada (EDIT): no limpiar en el primer render (mantener valores del garment cargado)
+  const didInitCascade = useRef(false);
 
   useEffect(() => {
-    if (!allowCascadeRef.current) return;
-    form.setValue("garmentTypeId", "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryId]);
-
-  useEffect(() => {
-    if (!allowCascadeRef.current) return;
+    if (!didInitCascade.current) return;
     form.setValue("lotId", "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionId]);
 
-  // Hidrata form + fotos desde garment (sin disparar cascada)
+  useEffect(() => {
+    didInitCascade.current = true;
+  }, []);
+
+
+
+
+  // Sincronizamos el form y las fotos al cargar la prenda
   useEffect(() => {
     if (!garment) return;
-
-    allowCascadeRef.current = false;
-
-    const categoryIdResolved = resolveId(garment, "categoryId", "category");
-    const garmentTypeIdResolved = resolveId(garment, "garmentTypeId", "garmentType");
-    const collectionIdResolved = resolveId(garment, "collectionId", "collection");
-    const lotIdResolved = resolveId(garment, "lotId", "lot");
-    const rackIdResolved = resolveId(garment, "rackId", "rack");
 
     form.reset({
       size: garment.size || "",
       color: garment.color || "",
       gender: garment.gender || "UNISEX",
       status: garment.status || "IN_STOCK",
-      categoryId: categoryIdResolved,
-      garmentTypeId: garmentTypeIdResolved,
-      collectionId: collectionIdResolved,
-      lotId: lotIdResolved,
-      rackId: rackIdResolved,
-      // Notes: allow empty string to remain empty; do not use || here.
-      description: typeof garment.description === "string" ? garment.description : "",
+      categoryId: garment.categoryId || "",
+      garmentTypeId: garment.garmentTypeId || "",
+      collectionId: garment.collectionId || "",
+      yearId: garment.yearId || "",
+      lotId: garment.lotId || "",
+      rackId: garment.rackId || "",
+      description: garment.description || "",
     });
 
+    // Preferimos photoUrls; si por compatibilidad sólo viene photoUrl, lo convertimos.
     const urls = Array.isArray(garment.photoUrls)
       ? garment.photoUrls
       : garment.photoUrl
         ? [garment.photoUrl]
         : [];
-
     setExistingPhotoUrls(urls.slice(0, 4));
-
-    // React Hook Form actualiza watchers async; re-activar cascada luego del reset
-    setTimeout(() => {
-      allowCascadeRef.current = true;
-    }, 0);
+    setCustomAttributes(garment.customAttributes && typeof garment.customAttributes === "object" ? garment.customAttributes : {});
   }, [garment, form]);
 
   const remainingSlots = 4 - existingPhotoUrls.length - newPhotos.length;
@@ -193,11 +175,13 @@ export default function CuratorEditGarment() {
     const list = Array.from(files);
     if (list.length === 0) return;
 
+    // UX fast-fail
     if (remainingSlots <= 0) {
       toast({ title: "Max 4 photos", description: "Remove a photo to add a new one." });
       return;
     }
 
+    // Guardrail: never exceed 4 total previews even if triggered rapidly.
     setNewPhotos((prev) => {
       const slots = Math.max(0, 4 - existingPhotoUrls.length - prev.length);
       if (slots <= 0) return prev;
@@ -215,59 +199,69 @@ export default function CuratorEditGarment() {
     }
   };
 
-  // Limpieza de previews al desmontar
+  // Limpieza de previews cuando removemos fotos nuevas
   useEffect(() => {
     return () => {
       newPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const updateMutation = useMutation({
     mutationFn: async (values: FormValues) => {
-      // Metadata JSON patch (incluye Notes/description)
-      const payload = {
-        size: values.size,
-        color: values.color,
-        gender: values.gender,
-        status: values.status,
-        categoryId: values.categoryId,
-        garmentTypeId: values.garmentTypeId,
-        collectionId: values.collectionId,
-        lotId: values.lotId,
-        // Siempre enviar (permite quitar)
-        rackId: values.rackId ?? "",
-        // Siempre enviar (permite editar/borrar Notes)
-        description: values.description ?? "",
-      };
+      const missingRequired = (customFieldsQuery.data ?? []).find((field) => field.isRequired && !customAttributes[field.key]);
+      if (missingRequired) throw new Error(`${missingRequired.label} is required`);
 
-      return apiRequest("PATCH", `/api/garments/${id}`, payload);
+      const fd = new FormData();
+
+      // Campos de formulario
+      fd.append("size", values.size);
+      fd.append("color", values.color);
+      fd.append("gender", values.gender);
+      fd.append("status", values.status);
+      fd.append("categoryId", values.categoryId);
+      fd.append("garmentTypeId", values.garmentTypeId);
+      fd.append("collectionId", values.collectionId);
+      if (values.yearId) fd.append("yearId", values.yearId);
+      fd.append("lotId", values.lotId);
+      if (values.rackId) fd.append("rackId", values.rackId);
+      if (values.description) fd.append("description", values.description);
+
+      fd.append("customAttributes", JSON.stringify(customAttributes));
+
+      // Lista actual de URLs que queremos conservar.
+      // Nota: en esta opción A NO borramos físicamente del storage (GCS o disco).
+      fd.append("photoUrls", JSON.stringify(existingPhotoUrls));
+
+      // Nuevos archivos
+      newPhotos.forEach((p) => fd.append("photos", p.file));
+
+      const res = await apiRequest("PATCH", `/api/garments/${id}`, fd);
+      return res;
     },
-    onSuccess: async () => {
+    onSuccess: () => {
       invalidateGarmentQueries();
-      await queryClient.invalidateQueries({
-        predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/garments",
-      });
-      await garmentQuery.refetch();
-      toast({ title: "Saved" });
+      toast({ title: "Saved", description: "Garment updated" });
+      // Luego de guardar, limpiamos los nuevos y recargamos desde server
+      newPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
+      setNewPhotos([]);
+      garmentQuery.refetch();
     },
     onError: (err: any) => {
-      toast({
-        title: "Update failed",
-        description: err?.message || "Unknown error",
-        variant: "destructive",
-      });
+      toast({ title: "Update failed", description: err?.message || "Unknown error", variant: "destructive" });
     },
   });
 
   const quickSavePhotosMutation = useMutation({
-    mutationFn: async (urls: string[]) => apiRequest("PATCH", `/api/garments/${id}`, { photoUrls: urls }),
-    onSuccess: async () => {
-      invalidateGarmentQueries();
-      await queryClient.invalidateQueries({
-        predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/garments",
+    // Persistimos cambios de fotos existentes (remove / clear) inmediatamente
+    mutationFn: async (urls: string[]) => {
+      const res = await apiRequest("PATCH", `/api/garments/${id}`, {
+        photoUrls: urls,
       });
-      await garmentQuery.refetch();
+      return res;
+    },
+    onSuccess: () => {
+      invalidateGarmentQueries();
+      garmentQuery.refetch();
       toast({ title: "Photos updated" });
     },
     onError: (err: any) => {
@@ -275,51 +269,11 @@ export default function CuratorEditGarment() {
     },
   });
 
-  const uploadPhotosMutation = useMutation({
-    mutationFn: async () => {
-      const fd = new FormData();
-
-      // kept URLs (las existentes)
-      fd.append("photoUrls", JSON.stringify(existingPhotoUrls));
-
-      // nuevas fotos
-      newPhotos.forEach((p) => fd.append("photos", p.file));
-
-      // IMPORTANT: backend must implement PATCH /api/garments/:id/photos (multipart)
-      return apiRequest("PATCH", `/api/garments/${id}/photos`, fd);
-    },
-    onSuccess: async (updated: any) => {
-      // refrescar estado local (si el endpoint devuelve garment hidratado)
-      const urls = Array.isArray(updated?.photoUrls)
-        ? updated.photoUrls
-        : updated?.photoUrl
-          ? [updated.photoUrl]
-          : [];
-
-      setExistingPhotoUrls(urls.slice(0, 4));
-
-      newPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
-      setNewPhotos([]);
-
-      invalidateGarmentQueries();
-      await queryClient.invalidateQueries({
-        predicate: (q) => Array.isArray(q.queryKey) && q.queryKey[0] === "/api/garments",
-      });
-      await garmentQuery.refetch();
-
-      toast({ title: "Photos updated" });
-    },
-    onError: (err: any) => {
-      toast({
-        title: "Photo upload failed",
-        description: err?.message || "Unknown error",
-        variant: "destructive",
-      });
-    },
-  });
-
   const deleteMutation = useMutation({
-    mutationFn: async () => apiRequest("DELETE", `/api/garments/${id}`),
+    mutationFn: async () => {
+      const res = await apiRequest("DELETE", `/api/garments/${id}`);
+      return res;
+    },
     onSuccess: () => {
       invalidateGarmentQueries();
       toast({ title: "Deleted", description: "Garment deleted" });
@@ -355,6 +309,7 @@ export default function CuratorEditGarment() {
       const idx = confirmState.index;
       setNewPhotos((prev) => {
         const next = prev.filter((_, i) => i !== idx);
+        // revoke preview
         const removed = prev[idx];
         if (removed) URL.revokeObjectURL(removed.previewUrl);
         return next;
@@ -362,6 +317,7 @@ export default function CuratorEditGarment() {
     }
 
     if (confirmState.kind === "clear-all") {
+      // Limpia URLs existentes (persistente) y fotos nuevas (local)
       setExistingPhotoUrls([]);
       newPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
       setNewPhotos([]);
@@ -375,6 +331,7 @@ export default function CuratorEditGarment() {
     setConfirmState({ open: false });
   };
 
+  // Guard UI: ADMIN/USER should not edit via direct URL
   if (isReadOnly) {
     return (
       <div className="p-6">
@@ -388,23 +345,12 @@ export default function CuratorEditGarment() {
   if (garmentQuery.error) return <div className="p-6">Failed to load garment</div>;
   if (!garment) return <div className="p-6">Garment not found</div>;
 
-  const garmentTypes = (Array.isArray(garmentTypesQuery.data) ? garmentTypesQuery.data : []) as any[];
-  const lots = (Array.isArray(lotsQuery.data) ? lotsQuery.data : []) as any[];
-
-  const currentTypeId = form.watch("garmentTypeId") || "";
-  const currentLotId = form.watch("lotId") || "";
-
-  const fallbackGarmentType = garment?.garmentType;
-  const fallbackLot = garment?.lot;
-
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Edit garment</h1>
-          <p className="text-sm text-muted-foreground">
-            Code: <span className="font-mono">{garment.code}</span>
-          </p>
+          <p className="text-sm text-muted-foreground">Code: <span className="font-mono">{garment.code}</span></p>
         </div>
 
         {canDeleteGarment && (
@@ -420,12 +366,10 @@ export default function CuratorEditGarment() {
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center justify-between">
-            <div className="text-sm text-muted-foreground">{existingPhotoUrls.length + newPhotos.length} / 4</div>
-            <Button
-              variant="outline"
-              onClick={openClearAll}
-              disabled={existingPhotoUrls.length + newPhotos.length === 0}
-            >
+            <div className="text-sm text-muted-foreground">
+              {existingPhotoUrls.length + newPhotos.length} / 4
+            </div>
+            <Button variant="outline" onClick={openClearAll} disabled={(existingPhotoUrls.length + newPhotos.length) === 0}>
               Clear all
             </Button>
           </div>
@@ -438,10 +382,14 @@ export default function CuratorEditGarment() {
                   size="icon"
                   variant="secondary"
                   className="absolute top-2 right-2"
-                  type="button"
                   onClick={() => {
-                    if (p.kind === "existing") openRemoveExisting(idx);
-                    else openRemoveNew(idx - existingPhotoUrls.length);
+                    if (p.kind === "existing") {
+                      const existingIdx = idx; // existing URLs are first in combined list
+                      openRemoveExisting(existingIdx);
+                    } else {
+                      const newIdx = idx - existingPhotoUrls.length;
+                      openRemoveNew(newIdx);
+                    }
                   }}
                 >
                   <X className="w-4 h-4" />
@@ -449,6 +397,7 @@ export default function CuratorEditGarment() {
               </div>
             ))}
 
+            {/* placeholders para completar grid 2x2 */}
             {Array.from({ length: Math.max(0, 4 - combinedPreviews.length) }).map((_, i) => (
               <div key={`empty-${i}`} className="rounded-md border border-dashed h-40 bg-muted/30" />
             ))}
@@ -496,6 +445,10 @@ export default function CuratorEditGarment() {
               e.target.value = "";
             }}
           />
+
+          <p className="text-xs text-muted-foreground">
+            Notes: In QA/local we can store in disk. In production, backend can store in Google Cloud Storage (GCS) when GCS_BUCKET is set.
+          </p>
         </CardContent>
       </Card>
 
@@ -505,15 +458,7 @@ export default function CuratorEditGarment() {
         </CardHeader>
         <CardContent>
           <Form {...form}>
-            <form
-              onSubmit={form.handleSubmit(async (values) => {
-                await updateMutation.mutateAsync(values);
-                if (newPhotos.length > 0) {
-                  await uploadPhotosMutation.mutateAsync();
-                }
-              })}
-              className="space-y-4"
-            >
+            <form onSubmit={form.handleSubmit((values) => updateMutation.mutate(values))} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <FormField
                   control={form.control}
@@ -522,21 +467,7 @@ export default function CuratorEditGarment() {
                     <FormItem>
                       <FormLabel>Size</FormLabel>
                       <FormControl>
-                        <Select onValueChange={field.onChange} value={field.value}>
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Select size" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="XS">XS</SelectItem>
-                            <SelectItem value="S">S</SelectItem>
-                            <SelectItem value="M">M</SelectItem>
-                            <SelectItem value="L">L</SelectItem>
-                            <SelectItem value="XL">XL</SelectItem>
-                            <SelectItem value="XXL">XXL</SelectItem>
-                          </SelectContent>
-                        </Select>
+                        <Input {...field} placeholder="e.g. M" />
                       </FormControl>
                       <FormMessage />
                     </FormItem>
@@ -563,7 +494,7 @@ export default function CuratorEditGarment() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Gender</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select gender" />
@@ -586,7 +517,7 @@ export default function CuratorEditGarment() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Status</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select status" />
@@ -611,7 +542,7 @@ export default function CuratorEditGarment() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Category</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select category" />
@@ -619,9 +550,7 @@ export default function CuratorEditGarment() {
                         </FormControl>
                         <SelectContent>
                           {(categoriesQuery.data as any[] | undefined)?.map((c: any) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.name}
-                            </SelectItem>
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -636,28 +565,15 @@ export default function CuratorEditGarment() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Type</FormLabel>
-                      <Select
-                        key={`type:${String(field.value ?? "")}:${garmentTypes.length}`}
-                        onValueChange={field.onChange}
-                        value={field.value ?? ""}
-                        disabled={!categoryId}
-                      >
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder={categoryId ? "Select type" : "Select category first"} />
+                            <SelectValue placeholder="Select independent type" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {fallbackGarmentType &&
-                            currentTypeId &&
-                            !garmentTypes.some((t: any) => t.id === currentTypeId) && (
-                              <SelectItem value={currentTypeId}>{fallbackGarmentType.name}</SelectItem>
-                            )}
-
-                          {garmentTypes.map((t: any) => (
-                            <SelectItem key={t.id} value={t.id}>
-                              {t.name}
-                            </SelectItem>
+                          {(garmentTypesQuery.data as any[] | undefined)?.map((t: any) => (
+                            <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -672,7 +588,7 @@ export default function CuratorEditGarment() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Collection</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value ?? ""}>
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select collection" />
@@ -680,9 +596,32 @@ export default function CuratorEditGarment() {
                         </FormControl>
                         <SelectContent>
                           {(collectionsQuery.data as any[] | undefined)?.map((c: any) => (
-                            <SelectItem key={c.id} value={c.id}>
-                              {c.name}
-                            </SelectItem>
+                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+
+                <FormField
+                  control={form.control}
+                  name="yearId"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Year (optional)</FormLabel>
+                      <Select onValueChange={(v) => field.onChange(v === "__NONE__" ? "" : v)} value={field.value || "__NONE__"}>
+                        <FormControl>
+                          <SelectTrigger>
+                            <SelectValue placeholder="Select year" />
+                          </SelectTrigger>
+                        </FormControl>
+                        <SelectContent>
+                          <SelectItem value="__NONE__">No year</SelectItem>
+                          {(yearsQuery.data as any[] | undefined)?.map((y: any) => (
+                            <SelectItem key={y.id} value={y.id}>{y.year}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -697,30 +636,15 @@ export default function CuratorEditGarment() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Lot</FormLabel>
-                      <Select
-                        key={`lot:${String(field.value ?? "")}:${lots.length}`}
-                        onValueChange={field.onChange}
-                        value={field.value ?? ""}
-                        disabled={!collectionId}
-                      >
+                      <Select onValueChange={field.onChange} value={field.value}>
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder={collectionId ? "Select lot" : "Select collection first"} />
+                            <SelectValue placeholder="Select lot" />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {fallbackLot &&
-                            currentLotId &&
-                            !lots.some((l: any) => l.id === currentLotId) && (
-                              <SelectItem value={currentLotId}>
-                                {fallbackLot.code} — {fallbackLot.name}
-                              </SelectItem>
-                            )}
-
-                          {lots.map((l: any) => (
-                            <SelectItem key={l.id} value={l.id}>
-                              {l.code} — {l.name}
-                            </SelectItem>
+                          {(lotsQuery.data as any[] | undefined)?.map((l: any) => (
+                            <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -735,7 +659,7 @@ export default function CuratorEditGarment() {
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Rack (optional)</FormLabel>
-                      <Select onValueChange={(v) => field.onChange(v === "__NONE__" ? "" : v)} value={field.value ?? ""}>
+                      <Select onValueChange={(v) => field.onChange(v === "__NONE__" ? "" : v)} value={field.value || ""}>
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select rack" />
@@ -744,9 +668,7 @@ export default function CuratorEditGarment() {
                         <SelectContent>
                           <SelectItem value="__NONE__">No rack</SelectItem>
                           {(racksQuery.data as any[] | undefined)?.map((r: any) => (
-                            <SelectItem key={r.id} value={r.id}>
-                              {r.code} — {r.name}
-                            </SelectItem>
+                            <SelectItem key={r.id} value={r.id}>{r.code} — {r.name}</SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -756,10 +678,44 @@ export default function CuratorEditGarment() {
                 />
               </div>
 
+              {(customFieldsQuery.data ?? []).map((field) => (
+                <FormItem key={field.id}>
+                  <FormLabel>{field.label}{field.isRequired ? " *" : ""}</FormLabel>
+                  <Select
+                    onValueChange={(value) => setCustomAttributes((prev) => ({ ...prev, [field.key]: value === "__NONE__" ? "" : value }))}
+                    value={customAttributes[field.key] || "__NONE__"}
+                  >
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder={`Select ${field.label.toLowerCase()}`} />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      <SelectItem value="__NONE__">No value</SelectItem>
+                      {(field.options ?? []).map((option) => (
+                        <SelectItem key={option.id} value={option.value}>{option.label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </FormItem>
+              ))}
+
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Notes (optional)</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} placeholder="Notes..." />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setLocation("/curator")}>
-                  Cancel
-                </Button>
+                <Button type="button" variant="outline" onClick={() => setLocation("/curator")}>Cancel</Button>
                 <Button type="submit" disabled={updateMutation.isPending}>
                   {updateMutation.isPending ? "Saving..." : "Save changes"}
                 </Button>
@@ -778,14 +734,14 @@ export default function CuratorEditGarment() {
             <AlertDialogDescription>
               {confirmState.open && confirmState.kind === "delete-garment" && "This action cannot be undone."}
               {confirmState.open && confirmState.kind === "clear-all" && "Remove all photos from this garment?"}
-              {confirmState.open &&
-                (confirmState.kind === "remove-existing" || confirmState.kind === "remove-new") &&
-                "Remove this photo?"}
+              {confirmState.open && (confirmState.kind === "remove-existing" || confirmState.kind === "remove-new") && "Remove this photo?"}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setConfirmState({ open: false })}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirm}>Confirm</AlertDialogAction>
+            <AlertDialogAction onClick={handleConfirm}>
+              Confirm
+            </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

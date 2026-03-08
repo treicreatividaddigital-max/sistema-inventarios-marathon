@@ -1,8 +1,3 @@
-// server/routes.ts (FINAL)
-// Nota: esta versión deja 2 PATCH separados:
-// 1) PATCH /api/garments/:id         => SOLO JSON (metadata + notes/description + ids + rack + opcional: photoUrls como array)
-// 2) PATCH /api/garments/:id/photos  => SOLO multipart (kept photoUrls + archivos photos[])
-
 import type { Express, Request, Response, NextFunction } from "express";
 import { createServer, type Server } from "http";
 import express from "express";
@@ -16,6 +11,8 @@ import { randomUUID } from "crypto";
 import path from "path";
 import { storage } from "./storage";
 import { insertGarmentSchema } from "../shared/schema";
+import { importTaxonomyBuffer } from "./taxonomy-import";
+import { buildCustomFieldsTemplateBuffer, importCustomFieldsBuffer } from "./custom-fields-import";
 
 function requirePermission(req: any, action: "read" | "create" | "update" | "delete" | "manageUsers") {
   const role = String(req.user?.role || "").toUpperCase();
@@ -61,7 +58,7 @@ async function hydrateGarmentList(garments: any[]) {
   const getCached = async (
     cache: Map<string, any | null>,
     id: string | null | undefined,
-    getter: (id: string) => Promise<any | undefined>,
+    getter: (id: string) => Promise<any | undefined>
   ) => {
     if (!id) return null;
     if (cache.has(id)) return cache.get(id)!;
@@ -78,9 +75,10 @@ async function hydrateGarmentList(garments: any[]) {
       collection: await getCached(collectionCache, g.collectionId, storage.getCollection.bind(storage)),
       lot: await getCached(lotCache, g.lotId, storage.getLot.bind(storage)),
       rack: await getCached(rackCache, g.rackId ?? null, storage.getRack.bind(storage)),
-    })),
+    }))
   );
 }
+
 
 // Hydrate movements for garment details (avoid "Added to undefined" and hide sensitive fields)
 async function hydrateMovementsList(movements: any[]) {
@@ -90,7 +88,7 @@ async function hydrateMovementsList(movements: any[]) {
   const getCached = async (
     cache: Map<string, any | null>,
     id: string | null | undefined,
-    getter: (id: string) => Promise<any | undefined>,
+    getter: (id: string) => Promise<any | undefined>
   ) => {
     if (!id) return null;
     if (cache.has(id)) return cache.get(id)!;
@@ -112,7 +110,7 @@ async function hydrateMovementsList(movements: any[]) {
       fromRack: await getCached(rackCache, m.fromRackId, storage.getRack.bind(storage)),
       toRack: await getCached(rackCache, m.toRackId, storage.getRack.bind(storage)),
       movedBy: await getUserSafe(m.movedById),
-    })),
+    }))
   );
 }
 
@@ -166,38 +164,61 @@ function buildPhotoUrl(objectName: string): string {
   return `/uploads/${objectName}`;
 }
 
+
 const upload = multer({
   // Cloud Run: evitar DiskStorage/fs. Siempre usar memoryStorage.
   storage: multer.memoryStorage(),
   limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
   fileFilter: (req, file, cb) => {
     const allowedTypes = ["image/jpeg", "image/png", "image/webp"];
-    if (allowedTypes.includes(file.mimetype)) cb(null, true);
-    else cb(new Error("Invalid file type. Only JPEG, PNG, and WebP are allowed."));
+    if (allowedTypes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error("Invalid file type. Only JPEG, PNG, and WebP are allowed."));
+    }
   },
 });
-
 /**
  * Middleware de subida de fotos (hasta 4).
  * - Si el request viene como multipart/form-data, aplica multer.
  * - Acepta:
- *    - photos (hasta 4 archivos)
- *    - photos[] (hasta 4 archivos)
- *    - photo  (1 archivo legacy)
+ *    - photos (hasta 4 archivos)  ✅ nuevo
+ *    - photo  (1 archivo)         ✅ retro-compatibilidad
+ *
+ * Nota: preferimos "photos" en el frontend.
  */
 const uploadMiddleware = (req: Request, res: Response, next: NextFunction) => {
   if (!req.is("multipart/form-data")) return next();
+
+  // Soporta ambos nombres de campo: photos[] (nuevo) y photo (legacy)
   const handler = upload.fields([
     { name: "photos", maxCount: 4 },
     { name: "photos[]", maxCount: 4 },
     { name: "photo", maxCount: 1 },
   ]);
+
   return handler(req, res, next);
 };
 
+
 /**
  * Extrae los archivos subidos por multer.
+ * Con upload.fields(), req.files puede venir como objeto por nombre de campo.
  */
+const excelUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const allowed = [
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      "application/vnd.ms-excel",
+      "application/octet-stream",
+    ];
+    if (allowed.includes(file.mimetype) || /\.xlsx?$/i.test(file.originalname || "")) cb(null, true);
+    else cb(new Error("Invalid file type. Upload an Excel file (.xlsx or .xls)."));
+  },
+});
+
 const extractUploadedPhotos = (req: Request): Express.Multer.File[] => {
   const filesAny: any = (req as any).files;
   if (!filesAny) return [];
@@ -208,10 +229,12 @@ const extractUploadedPhotos = (req: Request): Express.Multer.File[] => {
   return [...photos, ...photosBracket, ...photo];
 };
 
+
+
 // Rate limiting for auth endpoints
 const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // 100 requests per window
   message: "Too many login attempts, please try again later.",
 });
 
@@ -228,12 +251,14 @@ const errorHandler = (err: any, req: Request, res: Response, next: NextFunction)
   console.error("Error:", err);
 
   const response: ErrorResponse = {
-    statusCode: err.statusCode || err.status || 500,
+    statusCode: err.statusCode || 500,
     message: err.message || "Internal server error",
     timestamp: new Date().toISOString(),
   };
 
-  if (err.errors) response.errors = err.errors;
+  if (err.errors) {
+    response.errors = err.errors;
+  }
 
   res.status(response.statusCode).json(response);
 };
@@ -244,6 +269,7 @@ interface AuthRequest extends Request {
     id: string;
     email: string;
     role: string;
+    // true si el usuario es el Curador Master (PRIMARY_CURATOR_EMAIL)
     isMasterCurator?: boolean;
   };
 }
@@ -294,66 +320,51 @@ const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunctio
   }
 };
 
+
+// =====================
 // Roles & permisos
+// =====================
+// Reglas del negocio:
+// - CURATOR (Curador): crea/edita catálogo e inventario, pero NO gestiona usuarios ni elimina garments.
+// - Curador Master: es un CURATOR cuyo email coincide con PRIMARY_CURATOR_EMAIL. Puede TODO (incluye usuarios y borrar garments).
+// - ADMIN y USER: solo lectura (ver inventario).
 const isReadOnlyRole = (role?: string) => role === "ADMIN" || role === "USER";
 const isCuratorRole = (role?: string) => role === "CURATOR";
 const isMasterCurator = (req: AuthRequest) => !!req.user?.isMasterCurator;
 
 const requireCurator = (req: AuthRequest, res: Response) => {
-  if (!req.user) return (res.sendStatus(401), false);
-  if (!isCuratorRole(req.user.role)) return (res.sendStatus(403), false);
+  if (!req.user) return res.sendStatus(401), false;
+  if (!isCuratorRole(req.user.role)) return res.sendStatus(403), false;
   return true;
 };
 
 const requireMaster = (req: AuthRequest, res: Response) => {
-  if (!req.user) return (res.sendStatus(401), false);
-  if (!isMasterCurator(req)) return (res.sendStatus(403), false);
+  if (!req.user) return res.sendStatus(401), false;
+  if (!isMasterCurator(req)) return res.sendStatus(403), false;
   return true;
 };
+
 
 // QR code generation utility
 const generateQRCode = async (data: string): Promise<string> => {
   try {
-    return await QRCode.toDataURL(data, {
+    const qrDataUrl = await QRCode.toDataURL(data, {
       width: 400,
       margin: 2,
-      color: { dark: "#000000", light: "#FFFFFF" },
+      color: {
+        dark: "#000000",
+        light: "#FFFFFF",
+      },
     });
-  } catch {
+    return qrDataUrl;
+  } catch (error) {
     throw new Error("Failed to generate QR code");
   }
 };
 
 export async function registerRoutes(app: Express): Promise<Server> {
-  // Helper: hydrate garments for any response that needs related objects
-  const hydrateGarments = async (garments: any[]) => {
-    if (!Array.isArray(garments) || garments.length === 0) return garments;
 
-    const [allLots, allRacks, allCategories, allGarmentTypes, allCollections] = await Promise.all([
-      storage.getAllLots(),
-      storage.getAllRacks(),
-      storage.getAllCategories(),
-      storage.getAllGarmentTypes(),
-      storage.getAllCollections(),
-    ]);
-
-    const lotsById = new Map((allLots || []).map((x: any) => [x.id, x]));
-    const racksById = new Map((allRacks || []).map((x: any) => [x.id, x]));
-    const categoriesById = new Map((allCategories || []).map((x: any) => [x.id, x]));
-    const garmentTypesById = new Map((allGarmentTypes || []).map((x: any) => [x.id, x]));
-    const collectionsById = new Map((allCollections || []).map((x: any) => [x.id, x]));
-
-    return garments.map((g: any) => ({
-      ...g,
-      lot: g?.lotId ? lotsById.get(g.lotId) ?? null : null,
-      rack: g?.rackId ? racksById.get(g.rackId) ?? null : null,
-      category: g?.categoryId ? categoriesById.get(g.categoryId) ?? null : null,
-      garmentType: g?.garmentTypeId ? garmentTypesById.get(g.garmentTypeId) ?? null : null,
-      collection: g?.collectionId ? collectionsById.get(g.collectionId) ?? null : null,
-    }));
-  };
-
-  // Debug/version endpoint
+  // Debug/version endpoint (helps validate deployments quickly)
   app.get("/api/version", (_req, res) => {
     res.json({
       name: process.env.npm_package_name ?? "ms-inv",
@@ -364,13 +375,155 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.get("/api/health", (_req, res) => {
-    res.json({ ok: true, service: "ms-inv", timestamp: new Date().toISOString() });
+    res.json({
+      ok: true,
+      service: "ms-inv",
+      timestamp: new Date().toISOString(),
+    });
   });
 
-  // Upload serving
+  app.get("/api/admin/taxonomy/template", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireMaster(req, res)) return;
+      const filePath = path.resolve(process.cwd(), "seed", "template-taxonomy.xlsx");
+      return res.download(filePath, "template-taxonomy.xlsx");
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/admin/taxonomy/import", authMiddleware, excelUpload.single("file"), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireMaster(req, res)) return;
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file?.buffer) {
+        return res.status(400).json({ statusCode: 400, message: "Excel file is required", timestamp: new Date().toISOString() });
+      }
+      const summary = await importTaxonomyBuffer(file.buffer);
+      res.json({ ok: true, summary });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/custom-fields/garment", authMiddleware, async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const fields = await storage.getAllCustomFields("GARMENT");
+      res.json(fields);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/admin/custom-fields", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireMaster(req, res)) return;
+      const body = req.body ?? {};
+      const key = String(body.key ?? "").trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_+|_+$/g, "");
+      const label = String(body.label ?? "").trim();
+      if (!key || !label) {
+        return res.status(400).json({ statusCode: 400, message: "key and label are required", timestamp: new Date().toISOString() });
+      }
+      const created = await storage.createCustomField({
+        key,
+        label,
+        inputType: String(body.inputType ?? "select"),
+        scope: "GARMENT",
+        helpText: body.helpText ? String(body.helpText) : null,
+        isRequired: Boolean(body.isRequired),
+        isFilterable: body.isFilterable !== false,
+        isSearchable: body.isSearchable !== false,
+        isActive: true,
+        sortOrder: Number(body.sortOrder ?? 0) || 0,
+      } as any);
+      res.status(201).json(created);
+    } catch (error: any) {
+      if (String(error?.message || "").toLowerCase().includes("duplicate key")) {
+        return res.status(409).json({ statusCode: 409, message: "Field key already exists", timestamp: new Date().toISOString() });
+      }
+      next(error);
+    }
+  });
+
+  app.post("/api/admin/custom-fields/:id/options", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireMaster(req, res)) return;
+      const field = await storage.getCustomField(req.params.id);
+      if (!field) return res.status(404).json({ statusCode: 404, message: "Field not found", timestamp: new Date().toISOString() });
+      const options = Array.isArray(req.body?.options) ? req.body.options : [];
+      let inserted = 0;
+      let skipped = 0;
+      const existing = await storage.getAllCustomFields("GARMENT");
+      const existingField = existing.find((x: any) => x.id === field.id);
+      const existingValues = new Set((existingField?.options ?? []).map((o: any) => String(o.value).toLowerCase()));
+      for (const raw of options) {
+        const value = String(raw?.value ?? "").trim();
+        const label = String(raw?.label ?? value).trim();
+        if (!value || existingValues.has(value.toLowerCase())) {
+          skipped += 1;
+          continue;
+        }
+        await storage.createCustomFieldOption({ fieldId: field.id, value, label, sortOrder: Number(raw?.sortOrder ?? 0) || 0, isActive: true } as any);
+        existingValues.add(value.toLowerCase());
+        inserted += 1;
+      }
+      res.json({ ok: true, inserted, skipped });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/admin/custom-fields/template", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireMaster(req, res)) return;
+      const buffer = buildCustomFieldsTemplateBuffer();
+      res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+      res.setHeader("Content-Disposition", 'attachment; filename="custom-fields-template.xlsx"');
+      res.send(buffer);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.post("/api/admin/custom-fields/import", authMiddleware, excelUpload.single("file"), async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireMaster(req, res)) return;
+      const file = (req as any).file as Express.Multer.File | undefined;
+      if (!file?.buffer) {
+        return res.status(400).json({ statusCode: 400, message: "Excel file is required", timestamp: new Date().toISOString() });
+      }
+      const summary = await importCustomFieldsBuffer(file.buffer);
+      res.json({ ok: true, summary });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/admin/custom-fields/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireMaster(req, res)) return;
+      const field = await storage.getCustomField(req.params.id);
+      if (!field) {
+        return res.status(404).json({ statusCode: 404, message: "Field not found", timestamp: new Date().toISOString() });
+      }
+      const archived = await storage.deactivateCustomField(req.params.id);
+      if (!archived) {
+        return res.status(400).json({ statusCode: 400, message: "Could not archive field", timestamp: new Date().toISOString() });
+      }
+      res.json({ ok: true, archived: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  // Uploads:
+  // - Local dev: store files in ./uploads and serve at /uploads
+  // - Cloud Run: store files in Google Cloud Storage (GCS_BUCKET) and serve via /api/photos/:name
   if (!gcsBucket) {
     const fs = await import("fs");
-    if (!fs.existsSync("uploads")) fs.mkdirSync("uploads");
+    if (!fs.existsSync("uploads")) {
+      fs.mkdirSync("uploads");
+    }
     app.use("/uploads", express.static("uploads"));
   } else {
     app.get("/api/photos/:name", async (req, res, next) => {
@@ -384,14 +537,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (meta.contentType) res.setHeader("Content-Type", meta.contentType);
         if (meta.cacheControl) res.setHeader("Cache-Control", meta.cacheControl);
 
-        file.createReadStream().on("error", next).pipe(res);
+        file.createReadStream()
+          .on("error", next)
+          .pipe(res);
       } catch (err) {
         next(err);
       }
     });
   }
 
-  // CORS
+  // CORS configuration
   app.use((req, res, next) => {
     const allowedOrigins = [
       "http://localhost:5000",
@@ -408,16 +563,20 @@ export async function registerRoutes(app: Express): Promise<Server> {
     res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
     res.setHeader("Access-Control-Allow-Credentials", "true");
 
-    if (req.method === "OPTIONS") return res.sendStatus(200);
+    if (req.method === "OPTIONS") {
+      return res.sendStatus(200);
+    }
+
     next();
   });
 
   // =====================
-  // AUTH
+  // AUTH ROUTES
   // =====================
 
+  // POST /api/auth/register
   app.post("/api/auth/register", authLimiter, async (req: Request, res: Response, next: NextFunction) => {
-    // Nota: este endpoint solo debería ser usado por Master/seed. Si lo usas, pon authMiddleware aquí.
+    requirePermission(req, "manageUsers");
     try {
       const { email, password, name, role } = req.body;
 
@@ -451,7 +610,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       res.status(201).json({
-        user: { id: user.id, email: user.email, name: user.name, role: user.role },
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+        },
         token,
       });
     } catch (error) {
@@ -459,6 +623,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // POST /api/auth/login
   app.post("/api/auth/login", authLimiter, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { email, password } = req.body;
@@ -494,7 +659,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       });
 
       res.json({
-        user: { id: user.id, email: user.email, name: user.name, role: user.role },
+        user: {
+          id: user.id,
+          email: user.email,
+          name: user.name,
+          role: user.role,
+        },
         token,
       });
     } catch (error) {
@@ -502,8 +672,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // GET /api/auth/me
   app.get("/api/auth/me", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      // Never cache auth identity; prevents 304/ETag surprises and stale role/isMasterCurator on first paint.
       res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
       res.setHeader("Pragma", "no-cache");
       res.setHeader("Expires", "0");
@@ -522,18 +694,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const primaryEmail = (process.env.PRIMARY_CURATOR_EMAIL || "").toLowerCase();
       const isMasterCurator = user.role === "CURATOR" && !!primaryEmail && user.email.toLowerCase() === primaryEmail;
 
-      res.json({ id: user.id, email: user.email, name: user.name, role: user.role, isMasterCurator });
+      res.json({
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        role: user.role,
+        isMasterCurator,
+      });
     } catch (error) {
       next(error);
     }
   });
 
+  // POST /api/users - Create new user (CURATOR only)
+
+  // List users (admin only)
+
   // USERS
+
   app.get("/api/users", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
+      // Solo curadores pueden ver usuarios
       if (!requireCurator(req, res)) return;
 
       const users = await storage.getAllUsers();
+
+      // Nunca devolver passwordHash al frontend
       res.json(
         users.map((u: any) => ({
           id: u.id,
@@ -549,10 +735,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/users", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "manageUsers");
     try {
+      // Solo Curador Master puede crear usuarios
       if (!requireMaster(req, res)) return;
 
       const { email, password, name, role } = req.body as any;
+
       if (!email || !password || !name || !role) {
         return res.status(400).json({
           statusCode: 400,
@@ -560,6 +749,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           timestamp: new Date().toISOString(),
         });
       }
+
       if (typeof password !== "string" || password.length < 6) {
         return res.status(400).json({
           statusCode: 400,
@@ -599,7 +789,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.delete("/api/users/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "manageUsers");
     try {
+      // Solo Curador Master puede eliminar usuarios
       if (!requireMaster(req, res)) return;
 
       const deleted = await storage.deleteUser(req.params.id);
@@ -610,15 +802,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
       next(error);
     }
   });
-
-  // =====================
-  // CATEGORIES
-  // =====================
-
-  app.get("/api/categories", authMiddleware, async (_req: Request, res: Response, next: NextFunction) => {
+  app.get("/api/categories", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const categories = await storage.getAllCategories();
       res.json(categories);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.get("/api/years", authMiddleware, async (_req: Request, res: Response, next: NextFunction) => {
+    try {
+      const allYears = await storage.getAllYears();
+      res.json(allYears);
     } catch (error) {
       next(error);
     }
@@ -641,8 +837,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/categories", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "create");
     try {
-      requirePermission(req, "create");
       const category = await storage.createCategory(req.body);
       res.status(201).json(category);
     } catch (error) {
@@ -651,8 +847,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.patch("/api/categories/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "update");
     try {
-      requirePermission(req, "update");
       const category = await storage.updateCategory(req.params.id, req.body);
       if (!category) {
         return res.status(404).json({
@@ -668,9 +864,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.delete("/api/categories/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "delete");
     try {
-      requirePermission(req, "delete");
-
+      // Check if category has garments
       const garmentsWithCategory = await storage.searchGarments({ categoryId: req.params.id });
       if (garmentsWithCategory.length > 0) {
         return res.status(400).json({
@@ -695,10 +891,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =====================
-  // GARMENT TYPES
+  // GARMENT TYPES ROUTES
   // =====================
 
-  app.get("/api/garment-types", authMiddleware, async (_req: Request, res: Response, next: NextFunction) => {
+  app.get("/api/garment-types", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const types = await storage.getAllGarmentTypes();
       res.json(types);
@@ -707,18 +903,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get(
-    "/api/garment-types/by-category/:categoryId",
-    authMiddleware,
-    async (req: Request, res: Response, next: NextFunction) => {
-      try {
-        const types = await storage.getGarmentTypesByCategory(req.params.categoryId);
-        res.json(types);
-      } catch (error) {
-        next(error);
-      }
-    },
-  );
+  app.get("/api/garment-types/by-category/:categoryId", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const types = await storage.getGarmentTypesByCategory(req.params.categoryId);
+      res.json(types);
+    } catch (error) {
+      next(error);
+    }
+  });
 
   app.get("/api/garment-types/:id", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -737,8 +929,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/garment-types", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "create");
     try {
-      requirePermission(req, "create");
       const type = await storage.createGarmentType(req.body);
       res.status(201).json(type);
     } catch (error) {
@@ -746,9 +938,27 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/garment-types/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  app.patch("/api/garment-types/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "update");
     try {
-      requirePermission(req, "delete");
+      const type = await storage.updateGarmentType(req.params.id, req.body);
+      if (!type) {
+        return res.status(404).json({
+          statusCode: 404,
+          message: "Garment type not found",
+          timestamp: new Date().toISOString(),
+        });
+      }
+      res.json(type);
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/garment-types/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "delete");
+    try {
+      // Check if type has garments
       const garmentsWithType = await storage.searchGarments({ garmentTypeId: req.params.id });
       if (garmentsWithType.length > 0) {
         return res.status(400).json({
@@ -773,10 +983,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =====================
-  // COLLECTIONS
+  // COLLECTIONS ROUTES
   // =====================
 
-  app.get("/api/collections", authMiddleware, async (_req: Request, res: Response, next: NextFunction) => {
+  app.get("/api/collections", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const collections = await storage.getAllCollections();
       res.json(collections);
@@ -802,8 +1012,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/collections", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "create");
     try {
-      requirePermission(req, "create");
       const collection = await storage.createCollection(req.body);
       res.status(201).json(collection);
     } catch (error) {
@@ -812,8 +1022,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.patch("/api/collections/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "update");
     try {
-      requirePermission(req, "update");
       const collection = await storage.updateCollection(req.params.id, req.body);
       if (!collection) {
         return res.status(404).json({
@@ -829,8 +1039,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.delete("/api/collections/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "delete");
     try {
-      requirePermission(req, "delete");
+      // Check if collection has garments
       const garmentsWithCollection = await storage.searchGarments({ collectionId: req.params.id });
       if (garmentsWithCollection.length > 0) {
         return res.status(400).json({
@@ -855,10 +1066,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =====================
-  // LOTS
+  // LOTS ROUTES
   // =====================
 
-  app.get("/api/lots", authMiddleware, async (_req: Request, res: Response, next: NextFunction) => {
+  app.get("/api/lots", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const lots = await storage.getAllLots();
       res.json(lots);
@@ -893,8 +1104,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.post("/api/lots", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "create");
     try {
-      requirePermission(req, "create");
       const lot = await storage.createLot(req.body);
       res.status(201).json(lot);
     } catch (error) {
@@ -903,8 +1114,8 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.patch("/api/lots/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "update");
     try {
-      requirePermission(req, "update");
       const lot = await storage.updateLot(req.params.id, req.body);
       if (!lot) {
         return res.status(404).json({
@@ -920,8 +1131,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.delete("/api/lots/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "delete");
     try {
-      requirePermission(req, "delete");
+      // Check if lot has garments
       const garmentsWithLot = await storage.searchGarments({ lotId: req.params.id });
       if (garmentsWithLot.length > 0) {
         return res.status(400).json({
@@ -946,10 +1158,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =====================
-  // RACKS
+  // RACKS ROUTES
   // =====================
 
-  app.get("/api/racks", authMiddleware, async (_req: Request, res: Response, next: NextFunction) => {
+  app.get("/api/racks", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const racks = await storage.getAllRacks();
       res.json(racks);
@@ -969,14 +1181,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Get garments in this rack
       const garments = await storage.getGarmentsByRack(rack.id);
       const hydratedGarments = await hydrateGarmentList(garments);
 
-      res.json({ ...rack, garments: hydratedGarments });
+      res.json({
+        ...rack,
+        garments: hydratedGarments,
+      });
     } catch (error) {
       next(error);
     }
   });
+
 
   app.get("/api/racks/by-code/:code/qr", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -990,7 +1207,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const rackUrl = `${baseUrl}/rack/${encodeURIComponent(rack.code)}`;
       const qrUrl = await generateQRCode(rackUrl);
 
-      if (rack.qrUrl !== qrUrl) await storage.updateRack(rack.id, { qrUrl });
+      // Persist refreshed QR so UI shows the correct one
+      if (rack.qrUrl !== qrUrl) {
+        await storage.updateRack(rack.id, { qrUrl });
+      }
+
       res.json({ rackId: rack.id, code: rack.code, rackUrl, qrUrl });
     } catch (error) {
       next(error);
@@ -1008,14 +1229,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      // Get garments in this rack
       const garments = await storage.getGarmentsByRack(req.params.id);
       const hydratedGarments = await hydrateGarmentList(garments);
 
-      res.json({ ...rack, garments: hydratedGarments });
+      res.json({
+        ...rack,
+        garments: hydratedGarments,
+      });
     } catch (error) {
       next(error);
     }
   });
+
 
   app.post("/api/racks/:id/move-garments", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
@@ -1033,50 +1259,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
         return res.status(400).json({ statusCode: 400, message: "Destination rack must be different", timestamp: new Date().toISOString() });
       }
 
-      const [fromRack, toRack] = await Promise.all([storage.getRack(fromRackId), storage.getRack(toRackId)]);
-      if (!fromRack) return res.status(404).json({ statusCode: 404, message: "Source rack not found", timestamp: new Date().toISOString() });
-      if (!toRack) return res.status(404).json({ statusCode: 404, message: "Destination rack not found", timestamp: new Date().toISOString() });
+      const [fromRack, toRack] = await Promise.all([
+        storage.getRack(fromRackId),
+        storage.getRack(toRackId),
+      ]);
+
+      if (!fromRack) {
+        return res.status(404).json({ statusCode: 404, message: "Source rack not found", timestamp: new Date().toISOString() });
+      }
+      if (!toRack) {
+        return res.status(404).json({ statusCode: 404, message: "Destination rack not found", timestamp: new Date().toISOString() });
+      }
 
       let garments = await storage.getGarmentsByRack(fromRackId);
+
       if (Array.isArray(garmentIds) && garmentIds.length > 0) {
         const setIds = new Set(garmentIds);
         garments = garments.filter((g) => setIds.has(g.id));
       }
 
-      const moved: string[] = [];
+      const moved = [];
       for (const g of garments) {
         const result = await storage.moveGarment(
           g.id,
           toRackId,
-          g.status,
+          g.status, // keep same status
           req.user.id,
-          note || `Moved from rack ${fromRack.code} to ${toRack.code}`,
+          note || `Moved from rack ${fromRack.code} to ${toRack.code}`
         );
         moved.push(result.garment.id);
       }
 
-      res.json({ fromRackId, toRackId, movedCount: moved.length, garmentIds: moved });
+      res.json({
+        fromRackId,
+        toRackId,
+        movedCount: moved.length,
+        garmentIds: moved,
+      });
     } catch (error) {
       next(error);
     }
   });
 
   app.post("/api/racks", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "create");
     try {
-      requirePermission(req, "create");
-
       const { code, name, zone } = req.body;
+
       const codeNormalized = String(code ?? "").trim();
       if (!codeNormalized) {
         return res.status(400).json({ statusCode: 400, message: "code is required", timestamp: new Date().toISOString() });
       }
 
+      // Generate QR code for rack (use real host in Cloud Run)
       const proto = req.get("x-forwarded-proto") || req.protocol;
       const baseUrl = `${proto}://${req.get("host")}`;
       const rackUrl = `${baseUrl}/rack/${encodeURIComponent(codeNormalized)}`;
       const qrUrl = await generateQRCode(rackUrl);
+      const rack = await storage.createRack({
+        code: codeNormalized,
+        name,
+        zone,
+        qrUrl,
+      });
 
-      const rack = await storage.createRack({ code: codeNormalized, name, zone, qrUrl });
       res.status(201).json(rack);
     } catch (error) {
       next(error);
@@ -1084,11 +1330,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.patch("/api/racks/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "update");
     try {
-      requirePermission(req, "update");
       const rack = await storage.updateRack(req.params.id, req.body);
       if (!rack) {
-        return res.status(404).json({ statusCode: 404, message: "Rack not found", timestamp: new Date().toISOString() });
+        return res.status(404).json({
+          statusCode: 404,
+          message: "Rack not found",
+          timestamp: new Date().toISOString(),
+        });
       }
       res.json(rack);
     } catch (error) {
@@ -1097,8 +1347,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.delete("/api/racks/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "delete");
     try {
-      requirePermission(req, "delete");
+      // Check if rack has garments
       const garmentsWithRack = await storage.searchGarments({ rackId: req.params.id });
       if (garmentsWithRack.length > 0) {
         return res.status(400).json({
@@ -1109,8 +1360,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const deleted = await storage.deleteRack(req.params.id);
-      if (!deleted) return res.status(404).json({ statusCode: 404, message: "Rack not found", timestamp: new Date().toISOString() });
-
+      if (!deleted) {
+        return res.status(404).json({
+          statusCode: 404,
+          message: "Rack not found",
+          timestamp: new Date().toISOString(),
+        });
+      }
       res.json({ success: true });
     } catch (error) {
       next(error);
@@ -1118,9 +1374,42 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // =====================
-  // GARMENTS
-  // =====================
 
+  // GARMENTS
+
+  // Attach related objects so the client can render LOT/RACK (QR), Category/Type/Collection,
+  // and keep edit forms pre-filled.
+  const hydrateGarments = async (garments: any[]) => {
+    if (!Array.isArray(garments) || garments.length === 0) return garments;
+
+    const [allLots, allRacks, allCategories, allGarmentTypes, allCollections, allYears] = await Promise.all([
+      storage.getAllLots(),
+      storage.getAllRacks(),
+      storage.getAllCategories(),
+      storage.getAllGarmentTypes(),
+      storage.getAllCollections(),
+      storage.getAllYears(),
+    ]);
+
+    const lotsById = new Map((allLots || []).map((x: any) => [x.id, x]));
+    const racksById = new Map((allRacks || []).map((x: any) => [x.id, x]));
+    const categoriesById = new Map((allCategories || []).map((x: any) => [x.id, x]));
+    const garmentTypesById = new Map((allGarmentTypes || []).map((x: any) => [x.id, x]));
+    const collectionsById = new Map((allCollections || []).map((x: any) => [x.id, x]));
+    const yearsById = new Map((allYears || []).map((x: any) => [x.id, x]));
+
+    return garments.map((g: any) => ({
+      ...g,
+      lot: g?.lotId ? lotsById.get(g.lotId) ?? null : null,
+      rack: g?.rackId ? racksById.get(g.rackId) ?? null : null,
+      category: g?.categoryId ? categoriesById.get(g.categoryId) ?? null : null,
+      garmentType: g?.garmentTypeId ? garmentTypesById.get(g.garmentTypeId) ?? null : null,
+      collection: g?.collectionId ? collectionsById.get(g.collectionId) ?? null : null,
+      year: g?.yearId ? yearsById.get(g.yearId) ?? null : null,
+    }));
+  };
+
+  // Devuelve el siguiente código sugerido para acelerar la creación (ej: GAR-MAR-001)
   app.get("/api/garments/next-code", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       if (!requireCurator(req, res)) return;
@@ -1132,7 +1421,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.get("/api/garments", authMiddleware, async (_req: Request, res: Response, next: NextFunction) => {
+  app.get("/api/garments", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const garments = await storage.getGarments();
       res.json(await hydrateGarments(garments as any[]));
@@ -1143,13 +1432,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/garments/search", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { query, status, categoryId, garmentTypeId, collectionId, lotId, rackId } = req.query as any;
+      const { query, status, categoryId, garmentTypeId, collectionId, yearId, lotId, rackId } = req.query as any;
       const garments = await storage.searchGarments({
         q: typeof query === "string" ? query : undefined,
         status: typeof status === "string" ? status : undefined,
         categoryId: typeof categoryId === "string" ? categoryId : undefined,
         garmentTypeId: typeof garmentTypeId === "string" ? garmentTypeId : undefined,
         collectionId: typeof collectionId === "string" ? collectionId : undefined,
+        yearId: typeof yearId === "string" ? yearId : undefined,
         lotId: typeof lotId === "string" ? lotId : undefined,
         rackId: typeof rackId === "string" ? rackId : undefined,
       });
@@ -1174,6 +1464,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const garment = await storage.getGarmentByCode(req.params.code);
       if (!garment) return res.sendStatus(404);
 
+      // Generar (o re-generar) QR on-demand
       const baseUrl = process.env.PUBLIC_BASE_URL || `https://${req.get("host")}`;
       const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(garment.code)}`;
       const qrDataUrl = await generateQRCode(garmentUrl);
@@ -1193,174 +1484,190 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // CREATE garment (metadata + optional photos multipart)
-  app.post("/api/garments", authMiddleware, uploadMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-      if (!requireCurator(req, res)) return;
+  // Crear prenda + subir hasta 4 fotos (field "photos")
+  app.post(
+    "/api/garments",
+    authMiddleware,
+    uploadMiddleware,
+    async (req: AuthRequest, res: Response, next: NextFunction) => {
+      try {
+        if (!requireCurator(req, res)) return;
 
-      const { code: bodyCode, size, color, gender, status, categoryId, garmentTypeId, collectionId, lotId, rackId, description, notes } =
-        req.body as any;
+        const { code: bodyCode, size, color, gender, status, categoryId, garmentTypeId, collectionId, yearId, lotId, rackId, description } =
+          req.body as any;
 
-      const rawBodyPhotoUrls: any = (req.body as any).photoUrls;
-      let photoUrls: string[] = [];
-      if (typeof rawBodyPhotoUrls === "string") {
-        try {
-          photoUrls = JSON.parse(rawBodyPhotoUrls) || [];
-        } catch {
-          photoUrls = [];
+        // photoUrls puede llegar como JSON (string) o array
+        // photoUrls puede llegar como JSON (string) o array
+        const rawBodyPhotoUrls: any = (req.body as any).photoUrls;
+        let photoUrls: string[] = [];
+        if (typeof rawBodyPhotoUrls === "string") {
+          try {
+            photoUrls = JSON.parse(rawBodyPhotoUrls) || [];
+          } catch {
+            photoUrls = [];
+          }
+        } else if (Array.isArray(rawBodyPhotoUrls)) {
+          photoUrls = rawBodyPhotoUrls;
         }
-      } else if (Array.isArray(rawBodyPhotoUrls)) {
-        photoUrls = rawBodyPhotoUrls;
-      }
 
-      const code =
-        typeof bodyCode === "string" && bodyCode.trim()
-          ? bodyCode.trim()
-          : await storage.getNextGarmentCode("GAR-MAR-");
+        // customAttributes puede llegar como objeto o como JSON string
+        let customAttributes: Record<string, any> = {};
+        const rawCustomAttributes: any = (req.body as any).customAttributes;
 
-      const baseUrl = process.env.PUBLIC_BASE_URL || `https://${req.get("host")}`;
-      const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(code)}`;
-      const qrUrl = await generateQRCode(garmentUrl);
-
-      const files = extractUploadedPhotos(req);
-      if (files.length) {
-        for (const f of files.slice(0, 4)) {
-          const objectName = gcsBucket ? await uploadToGCS(f) : await saveToUploads(f);
-          photoUrls.push(buildPhotoUrl(objectName));
+        if (typeof rawCustomAttributes === "string") {
+          try {
+            const parsed = JSON.parse(rawCustomAttributes);
+            customAttributes =
+              parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
+          } catch {
+            customAttributes = {};
+          }
+        } else if (
+          rawCustomAttributes &&
+          typeof rawCustomAttributes === "object" &&
+          !Array.isArray(rawCustomAttributes)
+        ) {
+          customAttributes = rawCustomAttributes;
         }
+
+        // Auto-código si no llega uno
+        const code =
+          typeof bodyCode === "string" && bodyCode.trim() ? bodyCode.trim() : await storage.getNextGarmentCode("GAR-MAR-");
+
+        const baseUrl = process.env.PUBLIC_BASE_URL || `https://${req.get("host")}`;
+        const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(code)}`;
+        const qrUrl = await generateQRCode(garmentUrl);
+
+        // Archivos subidos en multipart
+        const files = extractUploadedPhotos(req);
+        if (files.length) {
+          for (const f of files.slice(0, 4)) {
+            if (gcsBucket) {
+              const objectName = gcsBucket
+                ? await uploadToGCS(f)
+                : await saveToUploads(f);
+              photoUrls.push(buildPhotoUrl(objectName));
+            } else {
+              const objectName = gcsBucket
+                ? await uploadToGCS(f)
+                : await saveToUploads(f);
+              photoUrls.push(buildPhotoUrl(objectName));
+            }
+          }
+        }
+
+        photoUrls = photoUrls.filter(Boolean).slice(0, 4);
+        const photoUrl = photoUrls[0] || null;
+
+        // createdById: viene del token (no confiamos en req.body)
+        const createdById = req.user!.id;
+
+        const parsed = insertGarmentSchema.parse({
+          code: code,
+          size,
+          color,
+          gender,
+          status,
+          categoryId: categoryId,
+          garmentTypeId: garmentTypeId,
+          collectionId: collectionId,
+          yearId: yearId || null,
+          lotId: lotId,
+          rackId: rackId || null,
+          description: typeof description === "string" ? description : null,
+          customAttributes,
+          photoUrl,
+          photoUrls,
+          qrUrl,
+          createdById,
+        });
+
+        const garment = await storage.createGarment(parsed);
+        res.status(201).json((await hydrateGarments([garment]))[0]);
+      } catch (error) {
+        next(error);
       }
+    },
+  );
 
-      photoUrls = photoUrls.filter(Boolean).slice(0, 4);
-      const photoUrl = photoUrls[0] || null;
+  // Editar prenda + (opcional) subir nuevas fotos y/o reordenar/eliminar (enviando photoUrls "kept")
+  app.patch(
+    "/api/garments/:id",
+    authMiddleware,
+    uploadMiddleware,
+    async (req: AuthRequest, res: Response, next: NextFunction) => {
+      try {
+        if (!requireCurator(req, res)) return;
 
-      const createdById = req.user!.id;
+        const current = await storage.getGarment(req.params.id);
+        if (!current) return res.sendStatus(404);
 
-      const parsed = insertGarmentSchema.parse({
-        code,
-        size,
-        color,
-        gender,
-        status,
-        categoryId,
-        garmentTypeId,
-        collectionId,
-        lotId,
-        rackId: rackId || null,
-        description: typeof description === "string" ? description : typeof notes === "string" ? notes : null,
-        photoUrl,
-        photoUrls,
-        qrUrl,
-        createdById,
-      });
+        const updateData: any = { ...req.body };
 
-      const garment = await storage.createGarment(parsed);
-      res.status(201).json((await hydrateGarments([garment]))[0]);
-    } catch (error) {
-      next(error);
-    }
-  });
+        // photoUrls puede venir como JSON (string) con las URLs que el usuario "mantiene"
+        const rawKept: any = updateData.photoUrls;
+        let kept: string[] | undefined = undefined;
+        if (typeof rawKept === "string") {
+          try { kept = JSON.parse(rawKept); } catch { kept = undefined; }
+        } else if (Array.isArray(rawKept)) {
+          kept = rawKept;
+        }
 
-  // PATCH garment metadata (JSON only)
-  app.patch("/api/garments/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-      if (!requireCurator(req, res)) return;
+        let finalPhotoUrls: string[] = kept ?? (Array.isArray((current as any).photoUrls) ? (current as any).photoUrls : []);
+        const files = extractUploadedPhotos(req);
 
-      const current = await storage.getGarment(req.params.id);
-      if (!current) return res.sendStatus(404);
+        if (files.length) {
+          for (const f of files.slice(0, 4)) {
+            if (gcsBucket) {
+              const objectName = gcsBucket
+                ? await uploadToGCS(f)
+                : await saveToUploads(f);
+              finalPhotoUrls.push(buildPhotoUrl(objectName));
+            } else {
+              const objectName = gcsBucket
+                ? await uploadToGCS(f)
+                : await saveToUploads(f);
+              finalPhotoUrls.push(buildPhotoUrl(objectName));
+            }
+          }
+        }
 
-      const updateData: any = { ...req.body };
+        finalPhotoUrls = finalPhotoUrls.filter(Boolean).slice(0, 4);
 
-      // Alias: allow sending notes instead of description
-      if (typeof updateData.description !== "string" && typeof updateData.notes === "string") {
-        updateData.description = updateData.notes;
-      }
-      delete updateData.notes;
-
-      // Si mandan photoUrls como array (JSON), lo tratamos como "reorder/remove" (sin subir archivos)
-      if (Array.isArray(updateData.photoUrls)) {
-        const finalPhotoUrls = updateData.photoUrls.filter(Boolean).slice(0, 4);
         updateData.photoUrls = finalPhotoUrls;
         updateData.photoUrl = finalPhotoUrls[0] || null;
-      } else {
-        delete updateData.photoUrls;
-        delete updateData.photoUrl;
-      }
 
-      delete updateData.createdById;
-      delete updateData.createdAt;
-      delete updateData.qrUrl;
-      delete updateData.code;
-
-      // Normaliza IDs opcionales
-      for (const k of ["rackId"]) {
-        if (updateData[k] === "") updateData[k] = null;
-      }
-
-      // Notes: description debe persistir (string o "")
-      if (updateData.description === "") updateData.description = "";
-
-      const garment = await storage.updateGarment(req.params.id, updateData);
-      if (!garment) return res.sendStatus(404);
-
-      res.json((await hydrateGarments([garment]))[0]);
-    } catch (error) {
-      next(error);
-    }
-  });
-
-  // PATCH photos (multipart only)
-  app.patch("/api/garments/:id/photos", authMiddleware, uploadMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
-    try {
-      if (!requireCurator(req, res)) return;
-
-      const current = await storage.getGarment(req.params.id);
-      if (!current) return res.sendStatus(404);
-
-      const body: any = req.body || {};
-
-      const rawKept: any = body.photoUrls;
-      let kept: string[] | undefined = undefined;
-      if (typeof rawKept === "string") {
-        try {
-          kept = JSON.parse(rawKept);
-        } catch {
-          kept = undefined;
+        if (typeof updateData.customAttributes === "string") {
+          try { updateData.customAttributes = JSON.parse(updateData.customAttributes) || {}; } catch { updateData.customAttributes = {}; }
+        } else if (updateData.customAttributes && typeof updateData.customAttributes !== "object") {
+          delete updateData.customAttributes;
         }
-      } else if (Array.isArray(rawKept)) {
-        kept = rawKept;
-      }
 
-      let finalPhotoUrls: string[] =
-        kept ?? (Array.isArray((current as any).photoUrls) ? (current as any).photoUrls : []);
+        // Campos que NO deberían actualizarse desde el cliente
+        delete updateData.createdById;
+        delete updateData.createdAt;
+        delete updateData.qrUrl; // solo se cambia si cambia el code (no soportado aquí)
+        delete updateData.code;  // code se controla en creación (y QR ligado al code)
 
-      const files = extractUploadedPhotos(req);
-
-      if (files.length) {
-        // OJO: respetamos el límite total 4
-        for (const f of files) {
-          if (finalPhotoUrls.length >= 4) break;
-          const objectName = gcsBucket ? await uploadToGCS(f) : await saveToUploads(f);
-          finalPhotoUrls.push(buildPhotoUrl(objectName));
+        // Normaliza IDs opcionales
+        for (const k of ["rackId", "yearId"]) {
+          if (updateData[k] === "") updateData[k] = null;
         }
+
+        if (typeof updateData.description !== "string") delete updateData.description;
+
+        const garment = await storage.updateGarment(req.params.id, updateData);
+        if (!garment) return res.sendStatus(404);
+        res.json((await hydrateGarments([garment]))[0]);
+      } catch (error) {
+        next(error);
       }
-
-      finalPhotoUrls = finalPhotoUrls.filter(Boolean).slice(0, 4);
-
-      const garment = await storage.updateGarment(req.params.id, {
-        photoUrls: finalPhotoUrls,
-        photoUrl: finalPhotoUrls[0] || null,
-      });
-
-      if (!garment) return res.sendStatus(404);
-      res.json((await hydrateGarments([garment]))[0]);
-    } catch (error) {
-      next(error);
-    }
-  });
+    },
+  );
 
   app.patch("/api/garments/:id/move", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "update");
     try {
-      requirePermission(req, "update");
       if (!requireCurator(req, res)) return;
 
       const { rackId, status } = req.body as any;
@@ -1384,8 +1691,9 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   app.delete("/api/garments/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "delete");
     try {
-      requirePermission(req, "delete");
+      // Solo Curador Master puede eliminar garments
       if (!requireMaster(req, res)) return;
 
       const garment = await storage.deleteGarment(req.params.id);
@@ -1395,14 +1703,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
       next(error);
     }
   });
-
-  app.get("/api/stats", authMiddleware, async (_req: Request, res: Response, next: NextFunction) => {
+  app.get("/api/stats", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
+      // Get all garments to calculate stats
       const allGarments = await storage.searchGarments({});
       const categories = await storage.getAllCategories();
       const collections = await storage.getAllCollections();
       const racks = await storage.getAllRacks();
 
+      // Calculate garments by status
       const garmentsByStatus: Record<string, number> = {};
       allGarments.forEach((garment) => {
         garmentsByStatus[garment.status] = (garmentsByStatus[garment.status] || 0) + 1;
@@ -1420,7 +1729,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // QR GENERATION
+  // =====================
+  // QR GENERATION ROUTE
+  // =====================
+
   app.post("/api/qr/generate", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const { data } = req.body;
@@ -1440,7 +1752,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  // Global error handler
+  // Apply global error handler
   app.use(errorHandler);
 
   const httpServer = createServer(app);

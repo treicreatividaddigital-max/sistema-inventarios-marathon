@@ -8,10 +8,12 @@ import {
   LayoutGrid,
   Tag,
   Layers,
-  Box
+  Box,
+  Upload
 } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useAuth } from "@/lib/auth-context";
 
 const quickActions = [
   {
@@ -82,6 +84,11 @@ const inventoryManagement = [
 ];
 
 export default function CuratorPage() {
+  const { user } = useAuth();
+  const inventoryItems = user?.isMasterCurator
+    ? [...inventoryManagement, { title: "Taxonomy Import", icon: Upload, href: "/admin/taxonomy-import", testId: "link-taxonomy-import" }]
+    : inventoryManagement;
+
   return (
     <div className="space-y-8">
       <div>
@@ -118,7 +125,7 @@ export default function CuratorPage() {
       <div>
         <h2 className="text-xl font-semibold mb-4">Inventory Management</h2>
         <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-3">
-          {inventoryManagement.map((item) => {
+          {inventoryItems.map((item) => {
             const Icon = item.icon;
             return (
               <Link key={item.title} href={item.href}>

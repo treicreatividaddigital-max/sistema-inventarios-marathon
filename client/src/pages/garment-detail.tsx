@@ -42,6 +42,7 @@ type Garment = {
   category?: { id: string; name: string } | null;
   garmentType?: { id: string; name: string } | null;
   collection?: { id: string; name: string } | null;
+  customAttributes?: Record<string, string> | null;
   lot?: { id: string; code: string; name: string } | null;
 
   rack?: {

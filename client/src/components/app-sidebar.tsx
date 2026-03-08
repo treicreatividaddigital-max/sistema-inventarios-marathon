@@ -13,6 +13,7 @@ import {
   LogOut,
   BarChart3,
   Users,
+  Upload,
 } from "lucide-react";
 import { Link, useLocation } from "wouter";
 import {
@@ -73,7 +74,7 @@ export function AppSidebar() {
       { title: "Lots", url: "/curator/lots", icon: Box },
       { title: "Racks", url: "/curator/racks", icon: Package },
       // Team/users management: master curator only
-      ...(isMasterCurator ? [{ title: "Team", url: "/curator/users", icon: Users }] : []),
+      ...(isMasterCurator ? [{ title: "Team", url: "/curator/users", icon: Users }, { title: "Taxonomy Import", url: "/admin/taxonomy-import", icon: Upload }] : []),
     ],
   };
 

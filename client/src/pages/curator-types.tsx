@@ -25,13 +25,6 @@ import {
   FormLabel,
   FormMessage,
 } from "@/components/ui/form";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
@@ -62,15 +55,14 @@ type GarmentType = {
   name: string;
   description: string | null;
   imageUrl: string | null;
-  categoryId: string;
-  category?: Category;
+  categoryId: string | null;
 };
 
 const typeSchema = z.object({
   name: z.string().min(1, "Name is required"),
   description: z.string().optional(),
   imageUrl: z.string().url().optional().or(z.literal("")),
-  categoryId: z.string().min(1, "Category is required"),
+  categoryId: z.string().optional(),
 });
 
 type TypeFormData = z.infer<typeof typeSchema>;
@@ -79,6 +71,7 @@ export default function CuratorTypesPage() {
   const { user } = useAuth();
   const isReadOnly = user?.role === "ADMIN" || user?.role === "USER";
   const canDeleteCatalog = user?.isMasterCurator === true;
+
   if (isReadOnly) {
     return (
       <div className="space-y-6">
@@ -120,15 +113,13 @@ export default function CuratorTypesPage() {
   });
 
   const createMutation = useMutation({
-    mutationFn: async (data: TypeFormData) => {
-      return await apiRequest("POST", "/api/garment-types", data);
-    },
+    mutationFn: async (data: TypeFormData) => apiRequest("POST", "/api/garment-types", data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/garment-types"] });
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
       toast({
         title: "Type created",
-        description: "The garment type has been created successfully.",
+        description: "The type is now independent from categories.",
       });
       setIsDialogOpen(false);
       form.reset();
@@ -143,9 +134,7 @@ export default function CuratorTypesPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: TypeFormData }) => {
-      return await apiRequest("PATCH", `/api/garment-types/${id}`, data);
-    },
+    mutationFn: async ({ id, data }: { id: string; data: TypeFormData }) => apiRequest("PATCH", `/api/garment-types/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/garment-types"] });
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
@@ -167,9 +156,7 @@ export default function CuratorTypesPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return await apiRequest("DELETE", `/api/garment-types/${id}`);
-    },
+    mutationFn: async (id: string) => apiRequest("DELETE", `/api/garment-types/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/garment-types"], exact: false });
       queryClient.invalidateQueries({ queryKey: ["/api/categories"] });
@@ -197,7 +184,7 @@ export default function CuratorTypesPage() {
         name: type.name,
         description: type.description || "",
         imageUrl: type.imageUrl || "",
-        categoryId: type.categoryId,
+        categoryId: type.categoryId || "",
       });
     } else {
       setEditingType(null);
@@ -216,6 +203,7 @@ export default function CuratorTypesPage() {
       ...data,
       description: data.description || undefined,
       imageUrl: data.imageUrl || undefined,
+      categoryId: data.categoryId || undefined,
     };
 
     if (editingType) {
@@ -239,7 +227,7 @@ export default function CuratorTypesPage() {
         <div>
           <h1 className="text-3xl font-semibold">Garment Types</h1>
           <p className="text-muted-foreground mt-2">
-            Manage garment type classifications
+            Types are now managed as independent labels. Category is optional and only shown for legacy records.
           </p>
         </div>
         <Button onClick={() => handleOpenDialog()} data-testid="button-new-type">
@@ -253,9 +241,7 @@ export default function CuratorTypesPage() {
           <CardContent className="flex flex-col items-center justify-center py-16">
             <Tag className="h-16 w-16 text-muted-foreground mb-4" />
             <p className="text-lg text-muted-foreground">No types yet</p>
-            <p className="text-sm text-muted-foreground mt-2">
-              Create your first garment type
-            </p>
+            <p className="text-sm text-muted-foreground mt-2">Create your first independent type</p>
             <Button className="mt-6" onClick={() => handleOpenDialog()} data-testid="button-create-first">
               <Plus className="h-4 w-4 mr-2" />
               Create Type
@@ -271,16 +257,14 @@ export default function CuratorTypesPage() {
                 <CardHeader>
                   <div className="flex items-start justify-between gap-2">
                     <CardTitle className="flex-1">{type.name}</CardTitle>
-                    {category && (
-                      <Badge variant="secondary" className="shrink-0">
-                        {category.name}
-                      </Badge>
+                    {category ? (
+                      <Badge variant="secondary" className="shrink-0">Legacy: {category.name}</Badge>
+                    ) : (
+                      <Badge variant="outline" className="shrink-0">Independent</Badge>
                     )}
                   </div>
                   {type.description && (
-                    <CardDescription className="line-clamp-2">
-                      {type.description}
-                    </CardDescription>
+                    <CardDescription className="line-clamp-2">{type.description}</CardDescription>
                   )}
                 </CardHeader>
                 <CardContent className="flex gap-2">
@@ -296,15 +280,15 @@ export default function CuratorTypesPage() {
                   </Button>
                   {canDeleteCatalog && (
                     <Button
-                    variant="outline"
-                    size="sm"
-                    className="flex-1"
-                    onClick={() => setDeletingType(type)}
-                    data-testid={`button-delete-${type.id}`}
-                  >
-                    <Trash2 className="h-3 w-3 mr-2" />
-                    Delete
-                  </Button>
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setDeletingType(type)}
+                      data-testid={`button-delete-${type.id}`}
+                    >
+                      <Trash2 className="h-3 w-3 mr-2" />
+                      Delete
+                    </Button>
                   )}
                 </CardContent>
               </Card>
@@ -316,13 +300,9 @@ export default function CuratorTypesPage() {
       <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
         <DialogContent data-testid="dialog-type-form">
           <DialogHeader>
-            <DialogTitle>
-              {editingType ? "Edit Garment Type" : "Create Garment Type"}
-            </DialogTitle>
+            <DialogTitle>{editingType ? "Edit Garment Type" : "Create Garment Type"}</DialogTitle>
             <DialogDescription>
-              {editingType
-                ? "Update the garment type details below."
-                : "Add a new garment type classification."}
+              Create or update a type. It will be available regardless of the selected category.
             </DialogDescription>
           </DialogHeader>
           <Form {...form}>
@@ -334,32 +314,8 @@ export default function CuratorTypesPage() {
                   <FormItem>
                     <FormLabel>Name</FormLabel>
                     <FormControl>
-                      <Input placeholder="T-Shirt" {...field} data-testid="input-name" />
+                      <Input placeholder="Home, Away, Goalkeeper, Jacket" {...field} data-testid="input-name" />
                     </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-              <FormField
-                control={form.control}
-                name="categoryId"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Category</FormLabel>
-                    <Select value={field.value} onValueChange={field.onChange}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-category">
-                          <SelectValue placeholder="Select category" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {categories.map((category) => (
-                          <SelectItem key={category.id} value={category.id}>
-                            {category.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -371,11 +327,7 @@ export default function CuratorTypesPage() {
                   <FormItem>
                     <FormLabel>Description (Optional)</FormLabel>
                     <FormControl>
-                      <Textarea
-                        placeholder="Short-sleeve performance top"
-                        {...field}
-                        data-testid="input-description"
-                      />
+                      <Textarea placeholder="Visible rule or internal note for this type" {...field} data-testid="input-description" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
@@ -388,36 +340,18 @@ export default function CuratorTypesPage() {
                   <FormItem>
                     <FormLabel>Image URL (Optional)</FormLabel>
                     <FormControl>
-                      <Input
-                        type="url"
-                        placeholder="https://example.com/image.jpg"
-                        {...field}
-                        data-testid="input-image-url"
-                      />
+                      <Input type="url" placeholder="https://example.com/image.jpg" {...field} data-testid="input-image-url" />
                     </FormControl>
                     <FormMessage />
                   </FormItem>
                 )}
               />
               <DialogFooter>
-                <Button
-                  type="button"
-                  variant="outline"
-                  onClick={() => setIsDialogOpen(false)}
-                  data-testid="button-cancel"
-                >
+                <Button type="button" variant="outline" onClick={() => setIsDialogOpen(false)} data-testid="button-cancel">
                   Cancel
                 </Button>
-                <Button
-                  type="submit"
-                  disabled={createMutation.isPending || updateMutation.isPending}
-                  data-testid="button-submit"
-                >
-                  {createMutation.isPending || updateMutation.isPending
-                    ? "Saving..."
-                    : editingType
-                    ? "Update"
-                    : "Create"}
+                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-submit">
+                  {createMutation.isPending || updateMutation.isPending ? "Saving..." : editingType ? "Update" : "Create"}
                 </Button>
               </DialogFooter>
             </form>
@@ -425,21 +359,21 @@ export default function CuratorTypesPage() {
         </DialogContent>
       </Dialog>
 
-      <AlertDialog open={!!deletingType} onOpenChange={() => setDeletingType(null)}>
-        <AlertDialogContent data-testid="dialog-delete-confirm">
+      <AlertDialog open={!!deletingType} onOpenChange={(open) => !open && setDeletingType(null)}>
+        <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>Are you sure?</AlertDialogTitle>
+            <AlertDialogTitle>Delete Garment Type</AlertDialogTitle>
             <AlertDialogDescription>
-              This will permanently delete the garment type "{deletingType?.name}".
-              This action cannot be undone.
+              {deletingType
+                ? `Are you sure you want to delete "${deletingType.name}"? This action cannot be undone.`
+                : "This action cannot be undone."}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel data-testid="button-cancel-delete">Cancel</AlertDialogCancel>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
             <AlertDialogAction
               onClick={() => deletingType && deleteMutation.mutate(deletingType.id)}
               disabled={deleteMutation.isPending}
-              data-testid="button-confirm-delete"
             >
               {deleteMutation.isPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>

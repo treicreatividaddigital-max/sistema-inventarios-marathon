@@ -1,30 +1,30 @@
-import { sql, relations } from "drizzle-orm";
-import { 
-  pgTable, 
-  text, 
-  varchar, 
-  uuid, 
-  timestamp, 
+import { relations } from "drizzle-orm";
+import {
+  pgTable,
+  text,
+  varchar,
+  uuid,
+  timestamp,
   pgEnum,
   integer,
   index,
-  jsonb
+  jsonb,
+  boolean,
+  uniqueIndex,
 } from "drizzle-orm/pg-core";
-import { createInsertSchema, createSelectSchema } from "drizzle-zod";
+import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
-// Enums
 export const userRoleEnum = pgEnum("user_role", ["ADMIN", "CURATOR", "USER"]);
 export const garmentStatusEnum = pgEnum("garment_status", [
   "IN_STOCK",
   "IN_TRANSIT",
   "SOLD",
   "RESERVED",
-  "DAMAGED"
+  "DAMAGED",
 ]);
 export const genderEnum = pgEnum("gender", ["MALE", "FEMALE", "UNISEX"]);
 
-// Users table
 export const users = pgTable("users", {
   id: uuid("id").primaryKey().defaultRandom(),
   email: varchar("email", { length: 255 }).notNull().unique(),
@@ -34,7 +34,6 @@ export const users = pgTable("users", {
   createdAt: timestamp("created_at").notNull().defaultNow(),
 });
 
-// Categories table
 export const categories = pgTable("categories", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
@@ -43,18 +42,14 @@ export const categories = pgTable("categories", {
   orderIndex: integer("order_index").notNull().default(0),
 });
 
-// Garment Types table
 export const garmentTypes = pgTable("garment_types", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
   description: text("description"),
   imageUrl: text("image_url"),
-  categoryId: uuid("category_id")
-    .notNull()
-    .references(() => categories.id, { onDelete: "cascade" }),
+  categoryId: uuid("category_id").references(() => categories.id, { onDelete: "set null" }),
 });
 
-// Collections table
 export const collections = pgTable("collections", {
   id: uuid("id").primaryKey().defaultRandom(),
   name: varchar("name", { length: 255 }).notNull(),
@@ -63,7 +58,40 @@ export const collections = pgTable("collections", {
   description: text("description"),
 });
 
-// Lots table (related to collections)
+export const customFields = pgTable("custom_fields", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  key: varchar("key", { length: 100 }).notNull().unique(),
+  label: varchar("label", { length: 255 }).notNull(),
+  inputType: varchar("input_type", { length: 50 }).notNull().default("select"),
+  scope: varchar("scope", { length: 50 }).notNull().default("GARMENT"),
+  helpText: text("help_text"),
+  isRequired: boolean("is_required").notNull().default(false),
+  isFilterable: boolean("is_filterable").notNull().default(true),
+  isSearchable: boolean("is_searchable").notNull().default(true),
+  isActive: boolean("is_active").notNull().default(true),
+  sortOrder: integer("sort_order").notNull().default(0),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
+export const customFieldOptions = pgTable("custom_field_options", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  fieldId: uuid("field_id").notNull().references(() => customFields.id, { onDelete: "cascade" }),
+  value: varchar("value", { length: 255 }).notNull(),
+  label: varchar("label", { length: 255 }).notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  isActive: boolean("is_active").notNull().default(true),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+}, (table) => ({
+  fieldValueUnique: uniqueIndex("custom_field_options_field_value_idx").on(table.fieldId, table.value),
+}));
+
+export const years = pgTable("years", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  year: integer("year").notNull().unique(),
+  label: varchar("label", { length: 100 }),
+  createdAt: timestamp("created_at").notNull().defaultNow(),
+});
+
 export const lots = pgTable("lots", {
   id: uuid("id").primaryKey().defaultRandom(),
   code: varchar("code", { length: 100 }).notNull().unique(),
@@ -74,7 +102,6 @@ export const lots = pgTable("lots", {
     .references(() => collections.id, { onDelete: "cascade" }),
 });
 
-// Racks table
 export const racks = pgTable("racks", {
   id: uuid("id").primaryKey().defaultRandom(),
   code: varchar("code", { length: 100 }).notNull().unique(),
@@ -83,7 +110,6 @@ export const racks = pgTable("racks", {
   qrUrl: text("qr_url"),
 });
 
-// Garments table with optimized indexes
 export const garments = pgTable(
   "garments",
   {
@@ -96,6 +122,8 @@ export const garments = pgTable(
     photoUrl: text("photo_url"),
     photoUrls: jsonb("photo_urls").default([]).notNull(),
     qrUrl: text("qr_url"),
+    description: text("description"),
+    customAttributes: jsonb("custom_attributes").default({}).notNull(),
     categoryId: uuid("category_id")
       .notNull()
       .references(() => categories.id, { onDelete: "restrict" }),
@@ -105,6 +133,7 @@ export const garments = pgTable(
     collectionId: uuid("collection_id")
       .notNull()
       .references(() => collections.id, { onDelete: "restrict" }),
+    yearId: uuid("year_id").references(() => years.id, { onDelete: "set null" }),
     lotId: uuid("lot_id")
       .notNull()
       .references(() => lots.id, { onDelete: "restrict" }),
@@ -118,15 +147,15 @@ export const garments = pgTable(
     codeIdx: index("garment_code_idx").on(table.code),
     rackIdx: index("garment_rack_idx").on(table.rackId),
     statusIdx: index("garment_status_idx").on(table.status),
+    yearIdx: index("garment_year_idx").on(table.yearId),
     compositeIdx: index("garment_composite_idx").on(
       table.categoryId,
       table.garmentTypeId,
-      table.collectionId
+      table.collectionId,
     ),
-  })
+  }),
 );
 
-// Movements table
 export const movements = pgTable("movements", {
   id: uuid("id").primaryKey().defaultRandom(),
   garmentId: uuid("garment_id")
@@ -147,7 +176,6 @@ export const movements = pgTable("movements", {
   movedAt: timestamp("moved_at").notNull().defaultNow(),
 });
 
-// Relations
 export const usersRelations = relations(users, ({ many }) => ({
   garmentsCreated: many(garments),
   movements: many(movements),
@@ -168,6 +196,21 @@ export const garmentTypesRelations = relations(garmentTypes, ({ one, many }) => 
 
 export const collectionsRelations = relations(collections, ({ many }) => ({
   lots: many(lots),
+  garments: many(garments),
+}));
+
+export const customFieldsRelations = relations(customFields, ({ many }) => ({
+  options: many(customFieldOptions),
+}));
+
+export const customFieldOptionsRelations = relations(customFieldOptions, ({ one }) => ({
+  field: one(customFields, {
+    fields: [customFieldOptions.fieldId],
+    references: [customFields.id],
+  }),
+}));
+
+export const yearsRelations = relations(years, ({ many }) => ({
   garments: many(garments),
 }));
 
@@ -197,6 +240,10 @@ export const garmentsRelations = relations(garments, ({ one, many }) => ({
   collection: one(collections, {
     fields: [garments.collectionId],
     references: [collections.id],
+  }),
+  year: one(years, {
+    fields: [garments.yearId],
+    references: [years.id],
   }),
   lot: one(lots, {
     fields: [garments.lotId],
@@ -234,40 +281,23 @@ export const movementsRelations = relations(movements, ({ one }) => ({
   }),
 }));
 
-// Zod Schemas
 export const insertUserSchema = createInsertSchema(users, {
   email: z.string().email(),
   name: z.string().min(1),
   passwordHash: z.string().min(8),
 }).omit({ id: true, createdAt: true });
 
-export const insertCategorySchema = createInsertSchema(categories).omit({
-  id: true,
-});
-
-export const insertGarmentTypeSchema = createInsertSchema(garmentTypes).omit({
-  id: true,
-});
-
-export const insertCollectionSchema = createInsertSchema(collections).omit({
-  id: true,
-});
-
+export const insertCategorySchema = createInsertSchema(categories).omit({ id: true });
+export const insertGarmentTypeSchema = createInsertSchema(garmentTypes).omit({ id: true });
+export const insertCollectionSchema = createInsertSchema(collections).omit({ id: true });
+export const insertCustomFieldSchema = createInsertSchema(customFields).omit({ id: true, createdAt: true });
+export const insertCustomFieldOptionSchema = createInsertSchema(customFieldOptions).omit({ id: true, createdAt: true });
+export const insertYearSchema = createInsertSchema(years).omit({ id: true, createdAt: true });
 export const insertLotSchema = createInsertSchema(lots).omit({ id: true });
-
 export const insertRackSchema = createInsertSchema(racks).omit({ id: true });
+export const insertGarmentSchema = createInsertSchema(garments).omit({ id: true, createdAt: true });
+export const insertMovementSchema = createInsertSchema(movements).omit({ id: true, movedAt: true });
 
-export const insertGarmentSchema = createInsertSchema(garments).omit({
-  id: true,
-  createdAt: true,
-});
-
-export const insertMovementSchema = createInsertSchema(movements).omit({
-  id: true,
-  movedAt: true,
-});
-
-// TypeScript types
 export type User = typeof users.$inferSelect;
 export type InsertUser = z.infer<typeof insertUserSchema>;
 
@@ -279,6 +309,15 @@ export type InsertGarmentType = z.infer<typeof insertGarmentTypeSchema>;
 
 export type Collection = typeof collections.$inferSelect;
 export type InsertCollection = z.infer<typeof insertCollectionSchema>;
+
+export type CustomField = typeof customFields.$inferSelect;
+export type InsertCustomField = z.infer<typeof insertCustomFieldSchema>;
+
+export type CustomFieldOption = typeof customFieldOptions.$inferSelect;
+export type InsertCustomFieldOption = z.infer<typeof insertCustomFieldOptionSchema>;
+
+export type Year = typeof years.$inferSelect;
+export type InsertYear = z.infer<typeof insertYearSchema>;
 
 export type Lot = typeof lots.$inferSelect;
 export type InsertLot = z.infer<typeof insertLotSchema>;

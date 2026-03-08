@@ -7,231 +7,219 @@ import xlsx from "xlsx";
 import pg from "pg";
 
 const { Client } = pg;
-
 const EXCEL_PATH = path.resolve(process.cwd(), "seed", "taxonomia.xlsx");
 
-function norm(s) {
-  return String(s ?? "")
+function normalizeText(value) {
+  return String(value ?? "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
     .replace(/\u00A0/g, " ")
     .trim()
     .replace(/\s+/g, " ");
 }
-function keyOf(s) {
-  return norm(s).toLowerCase();
+function canonicalKey(value) {
+  return normalizeText(value).toLowerCase();
 }
-function titleCase(s) {
-  const t = norm(s);
-  if (!t) return t;
-  return t
-    .toLowerCase()
+function titleCase(value) {
+  const text = normalizeText(value).toLowerCase();
+  if (!text) return "";
+  return text
     .split(" ")
-    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w))
+    .map((part) => (part ? part[0].toUpperCase() + part.slice(1) : part))
     .join(" ");
 }
-function hash8(s) {
-  return crypto.createHash("md5").update(String(s)).digest("hex").slice(0, 8).toUpperCase();
+function compactUpper(value) {
+  return normalizeText(value)
+    .toUpperCase()
+    .replace(/[^A-Z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "")
+    .slice(0, 24);
 }
-function trunc255(s) {
-  const t = norm(s);
-  return t.length > 255 ? t.slice(0, 255) : t;
+function shortHash(value) {
+  return crypto.createHash("md5").update(value).digest("hex").slice(0, 10).toUpperCase();
 }
-
-function toObjectsFromAoa(rowsAoa) {
-  // Encuentra la primera fila que parezca header (contiene "articulos" y "tipo")
-  let headerRowIndex = -1;
-  for (let i = 0; i < Math.min(rowsAoa.length, 10); i++) {
-    const row = rowsAoa[i] || [];
-    const joined = row.map((c) => keyOf(c)).join("|");
-    if (joined.includes("articulos") && joined.includes("tipo")) {
-      headerRowIndex = i;
-      break;
-    }
+function mapHeaderName(value) {
+  const v = canonicalKey(value);
+  if (v === "equipos") return "equipo";
+  if (v === "nivel de uniforme") return "nivel_uniforme";
+  if (v === "tipo de sub por equipo") return "sub";
+  if (v === "articulo") return "artículo";
+  if (v === "ano" || v === "anio") return "año";
+  return v;
+}
+function findHeaderIndex(rows) {
+  for (let i = 0; i < Math.min(rows.length, 10); i += 1) {
+    const row = rows[i] || [];
+    const normalized = row.map((cell) => canonicalKey(cell));
+    if (normalized.includes("marca") && normalized.some((v) => v === "equipo" || v === "equipos")) return i;
   }
-  if (headerRowIndex === -1) {
-    throw new Error("No se encontró header válido (esperaba columnas como 'articulos' y 'tipo').");
+  return -1;
+}
+function parseWorkbook(filePath) {
+  const workbook = xlsx.readFile(filePath);
+  const sheetName = workbook.SheetNames[0];
+  const worksheet = workbook.Sheets[sheetName];
+  const rows = xlsx.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
+  const headerIndex = findHeaderIndex(rows);
+  if (headerIndex === -1) throw new Error("No se encontró un encabezado válido en el Excel.");
+  const headers = (rows[headerIndex] || []).map((cell) => mapHeaderName(cell));
+  const body = rows.slice(headerIndex + 1);
+  const parsedRows = [];
+  for (const row of body) {
+    if (!row || row.every((cell) => normalizeText(cell) === "")) continue;
+    const record = Object.fromEntries(headers.map((header, idx) => [header, row[idx]]));
+    const team = titleCase(record.equipo);
+    const article = titleCase(record["artículo"]);
+    const brand = titleCase(record.marca);
+    const label = titleCase(record.etiqueta);
+    const kitLevel = titleCase(record.nivel_uniforme);
+    const tournament = titleCase(record.torneo);
+    const sub = compactUpper(record.sub || "GENERAL");
+    const yearRaw = normalizeText(record["año"]);
+    const year = yearRaw ? Number(String(yearRaw).replace(/[^0-9]/g, "")) : null;
+    if (!team || !article) continue;
+    parsedRows.push({
+      team,
+      article,
+      brand,
+      label,
+      kitLevel,
+      tournament,
+      sub,
+      year: Number.isFinite(year) ? year : null,
+    });
   }
-
-  const header = (rowsAoa[headerRowIndex] || []).map((h) => keyOf(h));
-  const dataRows = rowsAoa.slice(headerRowIndex + 1);
-
-  const objs = [];
-  for (const row of dataRows) {
-    if (!row || row.every((c) => norm(c) === "")) continue;
-    const obj = {};
-    for (let j = 0; j < header.length; j++) {
-      const k = header[j];
-      if (!k) continue;
-      obj[k] = row[j];
-    }
-    objs.push(obj);
-  }
-  return { headerRowIndex, header, objs };
+  return { sheetName, headerIndex, parsedRows };
+}
+function buildLotName(row) {
+  return [row.brand || "SIN_MARCA", row.label || "SIN_ETIQUETA", row.kitLevel || "SIN_NIVEL", row.sub || "GENERAL"]
+    .map((part) => normalizeText(part).toUpperCase())
+    .join(" | ");
+}
+function buildLotDescription(row) {
+  return [
+    row.brand ? `brand=${row.brand}` : null,
+    row.label ? `etiqueta=${row.label}` : null,
+    row.kitLevel ? `nivel=${row.kitLevel}` : null,
+    row.sub ? `sub=${row.sub}` : null,
+    row.tournament ? `torneo=${row.tournament}` : null,
+  ]
+    .filter(Boolean)
+    .join("; ");
 }
 
 async function main() {
-  if (!fs.existsSync(EXCEL_PATH)) {
-    console.error(`ERROR: No existe el Excel en: ${EXCEL_PATH}`);
-    console.error(`Colócalo como: seed/taxonomia.xlsx`);
-    process.exit(1);
-  }
+  if (!fs.existsSync(EXCEL_PATH)) throw new Error(`No existe el Excel en: ${EXCEL_PATH}`);
+  if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL no está definido.");
 
-  const dbUrl = process.env.DATABASE_URL;
-  if (!dbUrl) {
-    console.error("ERROR: DATABASE_URL no está definido. Revisa tu .env");
-    process.exit(1);
-  }
-
-  const wb = xlsx.readFile(EXCEL_PATH);
-  const sheetName = wb.SheetNames[0];
-  const ws = wb.Sheets[sheetName];
-
-  const rowsAoa = xlsx.utils.sheet_to_json(ws, { header: 1, defval: "" });
-  const { headerRowIndex, objs: rows } = toObjectsFromAoa(rowsAoa);
-
-  // Extrae únicos
-  const categoriesMap = new Map(); // key -> display
-  const typesMap = new Map(); // key -> display
-  const categoryTypesMap = new Map(); // catKey -> Map(typeKey -> typeDisplay)
-  const collectionsMap = new Map(); // key -> { name, year, type, description }
-
-  for (const r of rows) {
-    const articulo = norm(r.articulos);
-    const tipo = norm(r.tipo);
-    const activo = norm(r.activo);
-    const torneo = norm(r.torneo);
-    const coleccion = norm(r.coleccion);
-
-    const yearRaw = norm(r["año"] ?? r.ano ?? r.anio);
-    const yearNum = yearRaw ? Number(String(yearRaw).replace(/[^\d]/g, "")) : null;
-    const year = Number.isFinite(yearNum) ? yearNum : null;
-
-    if (articulo) categoriesMap.set(keyOf(articulo), titleCase(articulo));
-    if (tipo) typesMap.set(keyOf(tipo), titleCase(tipo));
-
-
-    // Mapear types SOLO dentro de su category (evita producto cartesiano)
-    if (articulo && tipo) {
-      const catKey = keyOf(articulo);
-      const typeKey = keyOf(tipo);
-      const typeDisplay = titleCase(tipo);
-      if (!categoryTypesMap.has(catKey)) categoryTypesMap.set(catKey, new Map());
-      categoryTypesMap.get(catKey).set(typeKey, typeDisplay);
-    }
-    const parts = [];
-    if (activo) parts.push(titleCase(activo));
-    if (year) parts.push(String(year));
-    if (torneo) parts.push(titleCase(torneo));
-    if (coleccion) parts.push(titleCase(coleccion));
-
-    const collectionName = trunc255(parts.join(" • "));
-    if (collectionName) {
-      const k = keyOf(collectionName);
-      if (!collectionsMap.has(k)) {
-        const desc = [
-          activo ? `activo=${norm(activo)}` : null,
-          torneo ? `torneo=${norm(torneo)}` : null,
-          coleccion ? `coleccion=${norm(coleccion)}` : null,
-        ]
-          .filter(Boolean)
-          .join("; ");
-
-        collectionsMap.set(k, {
-          name: collectionName,
-          year,
-          type: coleccion ? titleCase(coleccion) : null,
-          description: desc || null,
-        });
-      }
-    }
-  }
-
-  const client = new Client({ connectionString: dbUrl });
+  const { sheetName, headerIndex, parsedRows } = parseWorkbook(EXCEL_PATH);
+  const client = new Client({ connectionString: process.env.DATABASE_URL });
   await client.connect();
-
   await client.query(`CREATE EXTENSION IF NOT EXISTS pgcrypto;`);
 
-  // RACKS default (idempotente)
-  const racks = [
+  const racksDefault = [
     { code: "SIN-ASIGNAR", name: "Sin asignar", zone: "DEFAULT" },
     { code: "BODEGA", name: "Bodega", zone: "DEFAULT" },
     { code: "EXHIBICION", name: "Exhibición", zone: "DEFAULT" },
     { code: "ARCHIVO", name: "Archivo", zone: "DEFAULT" },
   ];
+
   let racksInserted = 0;
-  for (const r of racks) {
-    const exists = await client.query(`select 1 from racks where code=$1 limit 1`, [r.code]);
+  for (const rack of racksDefault) {
+    const exists = await client.query(`select 1 from racks where code=$1 limit 1`, [rack.code]);
     if (exists.rowCount === 0) {
       await client.query(
         `insert into racks (id, code, name, zone, qr_url) values (gen_random_uuid(), $1, $2, $3, null)`,
-        [r.code, r.name, r.zone]
+        [rack.code, rack.name, rack.zone],
       );
-      racksInserted++;
+      racksInserted += 1;
     }
   }
 
-  // CATEGORIES
-  const categoryIdsByKey = new Map();
   let categoriesInserted = 0;
-  for (const [k, display] of categoriesMap.entries()) {
-    const found = await client.query(`select id from categories where lower(name)=lower($1) limit 1`, [display]);
-    if (found.rowCount > 0) {
-      categoryIdsByKey.set(k, found.rows[0].id);
-      continue;
-    }
-    const ins = await client.query(
-      `insert into categories (id, name, description, image_url, order_index)
-       values (gen_random_uuid(), $1, null, null, 0)
-       returning id`,
-      [display]
-    );
-    categoryIdsByKey.set(k, ins.rows[0].id);
-    categoriesInserted++;
-  }
-
-  // GARMENT_TYPES por cada category (solo pairs category/type del Excel)
   let typesInserted = 0;
-  for (const [catKey, catId] of categoryIdsByKey.entries()) {
-    const perCat = categoryTypesMap.get(catKey);
-    // Si no hay mapeo por categoría, no insertamos nada (más seguro que inventar combinaciones)
-    if (!perCat || perCat.size === 0) continue;
+  let collectionsInserted = 0;
+  let yearsInserted = 0;
+  let lotsInserted = 0;
 
-    for (const [, typeDisplay] of perCat.entries()) {
-      const found = await client.query(
-        `select id from garment_types where category_id=$1 and lower(name)=lower($2) limit 1`,
-        [catId, typeDisplay]
+  for (const row of parsedRows) {
+    let categoryId;
+    const categoryFound = await client.query(`select id from categories where lower(name)=lower($1) limit 1`, [row.article]);
+    if (categoryFound.rowCount > 0) {
+      categoryId = categoryFound.rows[0].id;
+    } else {
+      const categoryIns = await client.query(
+        `insert into categories (id, name, description, image_url, order_index) values (gen_random_uuid(), $1, null, null, 0) returning id`,
+        [row.article],
       );
-      if (found.rowCount > 0) continue;
+      categoryId = categoryIns.rows[0].id;
+      categoriesInserted += 1;
+    }
 
+    const typeFound = await client.query(
+      `select id from garment_types where category_id=$1 and lower(name)=lower('TORNEO') limit 1`,
+      [categoryId],
+    );
+    if (typeFound.rowCount === 0) {
       await client.query(
-        `insert into garment_types (id, name, description, image_url, category_id)
-         values (gen_random_uuid(), $1, null, null, $2)`,
-        [typeDisplay, catId]
+        `insert into garment_types (id, name, description, image_url, category_id) values (gen_random_uuid(), 'TORNEO', null, null, $1)`,
+        [categoryId],
       );
-      typesInserted++;
+      typesInserted += 1;
+    }
+
+    let collectionId;
+    const collectionFound = await client.query(`select id from collections where lower(name)=lower($1) limit 1`, [row.team]);
+    if (collectionFound.rowCount > 0) {
+      collectionId = collectionFound.rows[0].id;
+    } else {
+      const collectionIns = await client.query(
+        `insert into collections (id, name, type, year, description) values (gen_random_uuid(), $1, null, null, null) returning id`,
+        [row.team],
+      );
+      collectionId = collectionIns.rows[0].id;
+      collectionsInserted += 1;
+    }
+
+    if (row.year) {
+      const yearFound = await client.query(`select id from years where year=$1 limit 1`, [row.year]);
+      if (yearFound.rowCount === 0) {
+        await client.query(
+          `insert into years (id, year, label, created_at) values (gen_random_uuid(), $1, $2, now())`,
+          [row.year, String(row.year)],
+        );
+        yearsInserted += 1;
+      }
+    }
+
+    const lotName = buildLotName(row);
+    const lotFound = await client.query(
+      `select id from lots where collection_id=$1 and lower(name)=lower($2) limit 1`,
+      [collectionId, lotName],
+    );
+    if (lotFound.rowCount === 0) {
+      const code = `LOT-${shortHash(`${collectionId}|${row.brand}|${row.label}|${row.kitLevel}|${row.sub}`)}`;
+      await client.query(
+        `insert into lots (id, code, name, description, collection_id) values (gen_random_uuid(), $1, $2, $3, $4)`,
+        [code, lotName, buildLotDescription(row) || null, collectionId],
+      );
+      lotsInserted += 1;
     }
   }
 
-console.log("SEED OK");
+  await client.end();
+
+  console.log("SEED OK");
   console.log({
     excel: EXCEL_PATH,
     sheet: sheetName,
-    detectedHeaderRowIndex: headerRowIndex,
-    uniques: {
-      categories: categoriesMap.size,
-      types: typesMap.size,
-      collections: collectionsMap.size,
-    },
-    inserted: {
-      racksInserted,
-      categoriesInserted,
-      typesInserted,
-      collectionsInserted,
-      lotsInserted,
-    },
+    detectedHeaderRowIndex: headerIndex,
+    processedRows: parsedRows.length,
+    inserted: { racksInserted, categoriesInserted, typesInserted, collectionsInserted, yearsInserted, lotsInserted },
   });
 }
 
-main().catch((e) => {
-  console.error("SEED ERROR:", e);
+main().catch((error) => {
+  console.error("SEED ERROR:", error);
   process.exit(1);
 });

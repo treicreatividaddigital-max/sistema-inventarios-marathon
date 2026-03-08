@@ -37,6 +37,7 @@ const formSchema = z.object({
   categoryId: z.string().min(1, "Category is required"),
   garmentTypeId: z.string().min(1, "Garment type is required"),
   collectionId: z.string().min(1, "Collection is required"),
+  yearId: z.string().optional(),
   lotId: z.string().min(1, "Lot is required"),
   rackId: z.string().min(1, "Rack is required"),
   description: z.string().optional(),
@@ -44,6 +45,7 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 type PhotoItem = { file: File; previewUrl: string };
+type CustomFieldDef = { id: string; key: string; label: string; isRequired?: boolean; options: { id: string; value: string; label: string }[] };
 
 const SIZE_OPTIONS = [
   { value: "XS", label: "XS" },
@@ -61,6 +63,7 @@ export default function CuratorNewGarment() {
   // === Estado de fotos (máximo 4) ===
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [removeIdx, setRemoveIdx] = useState<number | null>(null);
+  const [customAttributes, setCustomAttributes] = useState<Record<string, string>>({});
 
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const filesInputRef = useRef<HTMLInputElement | null>(null);
@@ -84,20 +87,14 @@ export default function CuratorNewGarment() {
       categoryId: "",
       garmentTypeId: "",
       collectionId: "",
+      yearId: "",
       lotId: "",
       rackId: "",
       description: "",
     },
   });
 
-  const categoryId = form.watch("categoryId");
   const collectionId = form.watch("collectionId");
-
-  // Cascada: si cambia el padre, limpiar el hijo
-  useEffect(() => {
-    form.setValue("garmentTypeId", "");
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [categoryId]);
 
   useEffect(() => {
     form.setValue("lotId", "");
@@ -125,13 +122,22 @@ export default function CuratorNewGarment() {
   });
 
   const { data: garmentTypes } = useQuery({
-    queryKey: ["/api/garment-types/by-category", categoryId],
-    enabled: !!categoryId,
+    queryKey: ["/api/garment-types"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
 
   const { data: collections } = useQuery({
     queryKey: ["/api/collections"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+
+  const { data: years } = useQuery({
+    queryKey: ["/api/years"],
+    queryFn: getQueryFn({ on401: "throw" }),
+  });
+
+  const { data: customFields } = useQuery<CustomFieldDef[]>({
+    queryKey: ["/api/custom-fields/garment"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
 
@@ -178,23 +184,20 @@ export default function CuratorNewGarment() {
   }
 
   const createMutation = useMutation({
-    mutationFn: async (data: any) => {
+    mutationFn: async (data: FormData) => {
+      const missingRequired = (customFields ?? []).find((field) => field.isRequired && !customAttributes[field.key]);
+      if (missingRequired) throw new Error(`${missingRequired.label} is required`);
+
       const fd = new window.FormData();
 
       // Nota: el backend genera el code si viene vacío.
-      // En creación, enviamos "description" incluso si está vacío para evitar ambigüedad null/"".
       Object.entries(data).forEach(([key, value]) => {
         if (value === undefined || value === null) return;
-
-        if (typeof value === "string") {
-          // Permitimos enviar description vacío
-          if (key !== "description" && value.trim() === "") return;
-          fd.append(key, value);
-          return;
-        }
-
+        if (typeof value === "string" && value.trim() === "") return;
         fd.append(key, String(value));
       });
+
+      fd.append("customAttributes", JSON.stringify(customAttributes));
 
       // Subimos hasta 4 fotos como "photos".
       photos.forEach((p) => fd.append("photos", p.file));
@@ -219,10 +222,13 @@ export default function CuratorNewGarment() {
         categoryId: "",
         garmentTypeId: "",
         collectionId: "",
+        yearId: "",
         lotId: "",
         rackId: "",
         description: "",
       });
+
+      setCustomAttributes({});
 
       // limpiar previews
       setPhotos((prev) => {
@@ -405,8 +411,8 @@ export default function CuratorNewGarment() {
                       <SearchableSelect
                         value={field.value}
                         onChange={field.onChange}
-                        placeholder={categoryId ? "Select type" : "Select category first"}
-                        disabled={!categoryId}
+                        placeholder="Select independent type"
+                        disabled={false}
                         options={((garmentTypes as any[] | undefined) ?? []).map((t: any) => ({
                           value: t.id,
                           label: t.name,
@@ -433,6 +439,30 @@ export default function CuratorNewGarment() {
                         options={((collections as any[] | undefined) ?? []).map((c: any) => ({
                           value: c.id,
                           label: c.name,
+                        }))}
+                      />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
+
+              {/* YEAR */}
+              <FormField
+                control={form.control}
+                name="yearId"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Year (optional)</FormLabel>
+                    <FormControl>
+                      <SearchableSelect
+                        value={field.value || ""}
+                        onChange={field.onChange}
+                        placeholder="Select year (optional)"
+                        options={((years as any[] | undefined) ?? []).map((y: any) => ({
+                          value: y.id,
+                          label: String(y.year),
                         }))}
                       />
                     </FormControl>
@@ -487,7 +517,36 @@ export default function CuratorNewGarment() {
                   </FormItem>
                 )}
               />
-              
+
+              {(customFields ?? []).map((field) => (
+                <FormItem key={field.id}>
+                  <FormLabel>{field.label}{field.isRequired ? " *" : ""}</FormLabel>
+                  <FormControl>
+                    <SearchableSelect
+                      value={customAttributes[field.key] || ""}
+                      onChange={(value) => setCustomAttributes((prev) => ({ ...prev, [field.key]: value }))}
+                      placeholder={`Select ${field.label.toLowerCase()}`}
+                      options={(field.options ?? []).map((option) => ({ value: option.value, label: option.label }))}
+                    />
+                  </FormControl>
+                </FormItem>
+              ))}
+
+              {/* DESCRIPTION */}
+              <FormField
+                control={form.control}
+                name="description"
+                render={({ field }) => (
+                  <FormItem>
+                    <FormLabel>Description (optional)</FormLabel>
+                    <FormControl>
+                      <Textarea {...field} placeholder="Notes..." />
+                    </FormControl>
+                    <FormMessage />
+                  </FormItem>
+                )}
+              />
+
               {/* PHOTOS */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">

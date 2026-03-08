@@ -28,6 +28,7 @@ import CuratorCollectionsPage from "@/pages/curator-collections";
 import CuratorLotsPage from "@/pages/curator-lots";
 import CuratorRacksPage from "@/pages/curator-racks";
 import CuratorUsersPage from "@/pages/curator-users";
+import AdminTaxonomyImportPage from "@/pages/admin-taxonomy-import";
 
 // Authenticated routes that use the sidebar layout
 function AuthenticatedRoutes() {
@@ -51,6 +52,7 @@ function AuthenticatedRoutes() {
       <Route path="/curator/lots" component={CuratorLotsPage} />
       <Route path="/curator/racks" component={CuratorRacksPage} />
       <Route path="/curator/users" component={CuratorUsersPage} />
+      <Route path="/admin/taxonomy-import" component={AdminTaxonomyImportPage} />
       <Route component={NotFound} />
     </Switch>
   );

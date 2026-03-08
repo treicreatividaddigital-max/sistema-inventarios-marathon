@@ -6,6 +6,9 @@ import {
   categories,
   garmentTypes,
   collections,
+  customFields,
+  customFieldOptions,
+  years,
   lots,
   racks,
   garments,
@@ -18,6 +21,12 @@ import {
   type InsertGarmentType,
   type Collection,
   type InsertCollection,
+  type CustomField,
+  type InsertCustomField,
+  type CustomFieldOption,
+  type InsertCustomFieldOption,
+  type Year,
+  type InsertYear,
   type Lot,
   type InsertLot,
   type Rack,
@@ -29,9 +38,9 @@ import {
 } from "@shared/schema";
 
 export interface IStorage {
-  
   getGarments(): Promise<Garment[]>;
-// Users
+
+  // Users
   getUser(id: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
@@ -60,6 +69,19 @@ export interface IStorage {
   updateCollection(id: string, collection: Partial<InsertCollection>): Promise<Collection | undefined>;
   deleteCollection(id: string): Promise<boolean>;
 
+  // Custom Fields
+  getAllCustomFields(scope?: string): Promise<(CustomField & { options: CustomFieldOption[] })[]>;
+  getCustomField(id: string): Promise<CustomField | undefined>;
+  createCustomField(field: InsertCustomField): Promise<CustomField>;
+  updateCustomField(id: string, field: Partial<InsertCustomField>): Promise<CustomField | undefined>;
+  deactivateCustomField(id: string): Promise<boolean>;
+  createCustomFieldOption(option: InsertCustomFieldOption): Promise<CustomFieldOption>;
+
+  // Years
+  getAllYears(): Promise<Year[]>;
+  getYear(id: string): Promise<Year | undefined>;
+  createYear(year: InsertYear): Promise<Year>;
+
   // Lots
   getAllLots(): Promise<Lot[]>;
   getLotsByCollection(collectionId: string): Promise<Lot[]>;
@@ -79,12 +101,13 @@ export interface IStorage {
   // Garments
   searchGarments(filters: {
     q?: string;
+    code?: string;
     categoryId?: string;
     garmentTypeId?: string;
     collectionId?: string;
+    yearId?: string;
     lotId?: string;
     rackId?: string;
-    year?: number;
     size?: string;
     color?: string;
     gender?: "MALE" | "FEMALE" | "UNISEX";
@@ -95,31 +118,26 @@ export interface IStorage {
   getGarmentsByRack(rackId: string): Promise<Garment[]>;
   createGarment(garment: InsertGarment): Promise<Garment>;
   updateGarment(id: string, garment: Partial<InsertGarment>): Promise<Garment | undefined>;
-  // Genera el siguiente código de prenda con un prefijo (ej: GAR-MAR-001)
   getNextGarmentCode(prefix?: string): Promise<string>;
   deleteGarment(id: string): Promise<boolean>;
 
   // Movements
   getMovementsByGarment(garmentId: string): Promise<Movement[]>;
   createMovement(movement: InsertMovement): Promise<Movement>;
-  
-  // Atomic garment move with transaction
   moveGarment(
     garmentId: string,
     toRackId: string | null,
     toStatus: string,
     movedById: string,
-    note?: string
+    note?: string,
   ): Promise<{ garment: Garment; movement: Movement }>;
 }
 
 export class DatabaseStorage implements IStorage {
-  // Escapa un string para usarlo dentro de una expresión regular de Postgres
   private escapeRegex(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
   }
 
-  // Users
   async getUser(id: string): Promise<User | undefined> {
     const [user] = await db.select().from(users).where(eq(users.id, id));
     return user || undefined;
@@ -135,21 +153,17 @@ export class DatabaseStorage implements IStorage {
     return user;
   }
 
+  async getAllUsers(): Promise<User[]> {
+    return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
 
-async getAllUsers(): Promise<User[]> {
-  // Never return passwordHash to callers (routes should strip too)
-  return await db.select().from(users).orderBy(desc(users.createdAt));
-}
+  async deleteUser(id: string): Promise<boolean> {
+    const result = await db.delete(users).where(eq(users.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
 
-async deleteUser(id: string): Promise<boolean> {
-  const result = await db.delete(users).where(eq(users.id, id));
-  return result.rowCount !== null && result.rowCount > 0;
-}
-
-
-  // Categories
   async getAllCategories(): Promise<Category[]> {
-    return await db.select().from(categories).orderBy(categories.orderIndex);
+    return await db.select().from(categories).orderBy(categories.orderIndex, categories.name);
   }
 
   async getCategory(id: string): Promise<Category | undefined> {
@@ -172,13 +186,14 @@ async deleteUser(id: string): Promise<boolean> {
     return result.rowCount !== null && result.rowCount > 0;
   }
 
-  // Garment Types
   async getAllGarmentTypes(): Promise<GarmentType[]> {
-    return await db.select().from(garmentTypes);
+    return await db.select().from(garmentTypes).orderBy(garmentTypes.name);
   }
 
-  async getGarmentTypesByCategory(categoryId: string): Promise<GarmentType[]> {
-    return await db.select().from(garmentTypes).where(eq(garmentTypes.categoryId, categoryId));
+  async getGarmentTypesByCategory(_categoryId: string): Promise<GarmentType[]> {
+    // Types are now treated as independent labels. For backward compatibility,
+    // this endpoint returns all active garment types regardless of category.
+    return await db.select().from(garmentTypes).orderBy(garmentTypes.name);
   }
 
   async getGarmentType(id: string): Promise<GarmentType | undefined> {
@@ -186,39 +201,32 @@ async deleteUser(id: string): Promise<boolean> {
     return type || undefined;
   }
 
+  async getNextGarmentCode(prefix: string = "GAR-MAR-"): Promise<string> {
+    const pattern = `^${this.escapeRegex(prefix)}`;
+    const [row] = await db
+      .select({
+        max: sql<number | null>`max((regexp_replace(${garments.code}, ${pattern}, ''))::int)`,
+      })
+      .from(garments)
+      .where(like(garments.code, `${prefix}%`));
 
-/**
- * Devuelve el siguiente código disponible para una prenda.
- * Ejemplo: prefijo GAR-MAR- -> GAR-MAR-001, GAR-MAR-002, ...
- *
- * Nota: Se calcula usando MAX numérico en la DB (no orden lexicográfico)
- * para evitar errores cuando se pasa de 999 a 1000, etc.
- */
-async getNextGarmentCode(prefix: string = "GAR-MAR-"): Promise<string> {
-  // Postgres regex: usamos ^<prefijo-escapado> para extraer el número
-  const pattern = `^${this.escapeRegex(prefix)}`;
-
-  const [row] = await db
-    .select({
-      max: sql<number | null>`max((regexp_replace(${garments.code}, ${pattern}, ''))::int)`,
-    })
-    .from(garments)
-    .where(like(garments.code, `${prefix}%`));
-
-  const max = Number(row?.max ?? 0);
-  const next = max + 1;
-
-  const width = Math.max(3, String(next).length);
-  return `${prefix}${String(next).padStart(width, "0")}`;
-}
+    const max = Number(row?.max ?? 0);
+    const next = max + 1;
+    const width = Math.max(3, String(next).length);
+    return `${prefix}${String(next).padStart(width, "0")}`;
+  }
 
   async createGarmentType(type: InsertGarmentType): Promise<GarmentType> {
-    const [created] = await db.insert(garmentTypes).values(type).returning();
+    const payload: any = { ...type };
+    if (payload.categoryId === "") payload.categoryId = null;
+    const [created] = await db.insert(garmentTypes).values(payload).returning();
     return created;
   }
 
   async updateGarmentType(id: string, type: Partial<InsertGarmentType>): Promise<GarmentType | undefined> {
-    const [updated] = await db.update(garmentTypes).set(type).where(eq(garmentTypes.id, id)).returning();
+    const payload: any = { ...type };
+    if (payload.categoryId === "") payload.categoryId = null;
+    const [updated] = await db.update(garmentTypes).set(payload).where(eq(garmentTypes.id, id)).returning();
     return updated || undefined;
   }
 
@@ -227,9 +235,8 @@ async getNextGarmentCode(prefix: string = "GAR-MAR-"): Promise<string> {
     return result.rowCount !== null && result.rowCount > 0;
   }
 
-  // Collections
   async getAllCollections(): Promise<Collection[]> {
-    return await db.select().from(collections);
+    return await db.select().from(collections).orderBy(collections.name);
   }
 
   async getCollection(id: string): Promise<Collection | undefined> {
@@ -252,13 +259,75 @@ async getNextGarmentCode(prefix: string = "GAR-MAR-"): Promise<string> {
     return result.rowCount !== null && result.rowCount > 0;
   }
 
-  // Lots
+  async getAllCustomFields(scope = "GARMENT"): Promise<(CustomField & { options: CustomFieldOption[] })[]> {
+    const fields = await db
+      .select()
+      .from(customFields)
+      .where(and(eq(customFields.scope, scope), eq(customFields.isActive, true)))
+      .orderBy(customFields.sortOrder, customFields.label);
+
+    const options = await db
+      .select()
+      .from(customFieldOptions)
+      .where(eq(customFieldOptions.isActive, true))
+      .orderBy(customFieldOptions.sortOrder, customFieldOptions.label);
+
+    const optionsByField = new Map<string, CustomFieldOption[]>();
+    for (const option of options) {
+      const arr = optionsByField.get(option.fieldId) ?? [];
+      arr.push(option);
+      optionsByField.set(option.fieldId, arr);
+    }
+
+    return fields.map((field) => ({ ...field, options: optionsByField.get(field.id) ?? [] }));
+  }
+
+  async getCustomField(id: string): Promise<CustomField | undefined> {
+    const [field] = await db.select().from(customFields).where(eq(customFields.id, id));
+    return field || undefined;
+  }
+
+  async createCustomField(field: InsertCustomField): Promise<CustomField> {
+    const [created] = await db.insert(customFields).values(field).returning();
+    return created;
+  }
+
+  async updateCustomField(id: string, field: Partial<InsertCustomField>): Promise<CustomField | undefined> {
+    const [updated] = await db.update(customFields).set(field).where(eq(customFields.id, id)).returning();
+    return updated || undefined;
+  }
+
+  async deactivateCustomField(id: string): Promise<boolean> {
+    await db.update(customFieldOptions).set({ isActive: false }).where(eq(customFieldOptions.fieldId, id));
+    const result = await db.update(customFields).set({ isActive: false }).where(eq(customFields.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async createCustomFieldOption(option: InsertCustomFieldOption): Promise<CustomFieldOption> {
+    const [created] = await db.insert(customFieldOptions).values(option).returning();
+    return created;
+  }
+
+  async getAllYears(): Promise<Year[]> {
+    return await db.select().from(years).orderBy(years.year);
+  }
+
+  async getYear(id: string): Promise<Year | undefined> {
+    const [year] = await db.select().from(years).where(eq(years.id, id));
+    return year || undefined;
+  }
+
+  async createYear(year: InsertYear): Promise<Year> {
+    const [created] = await db.insert(years).values(year).returning();
+    return created;
+  }
+
   async getAllLots(): Promise<Lot[]> {
-    return await db.select().from(lots);
+    return await db.select().from(lots).orderBy(lots.name);
   }
 
   async getLotsByCollection(collectionId: string): Promise<Lot[]> {
-    return await db.select().from(lots).where(eq(lots.collectionId, collectionId));
+    return await db.select().from(lots).where(eq(lots.collectionId, collectionId)).orderBy(lots.name);
   }
 
   async getLot(id: string): Promise<Lot | undefined> {
@@ -281,9 +350,8 @@ async getNextGarmentCode(prefix: string = "GAR-MAR-"): Promise<string> {
     return result.rowCount !== null && result.rowCount > 0;
   }
 
-  // Racks
   async getAllRacks(): Promise<Rack[]> {
-    return await db.select().from(racks);
+    return await db.select().from(racks).orderBy(racks.code);
   }
 
   async getRack(id: string): Promise<Rack | undefined> {
@@ -317,77 +385,47 @@ async getNextGarmentCode(prefix: string = "GAR-MAR-"): Promise<string> {
     return result.rowCount !== null && result.rowCount > 0;
   }
 
-  // Garments
   async searchGarments(filters: {
     q?: string;
     code?: string;
     categoryId?: string;
     garmentTypeId?: string;
     collectionId?: string;
+    yearId?: string;
     lotId?: string;
     rackId?: string;
-    year?: number;
     size?: string;
     color?: string;
     gender?: "MALE" | "FEMALE" | "UNISEX";
     status?: string;
   }): Promise<Garment[]> {
     let query = db.select().from(garments);
+    const conditions = [] as any[];
 
-    const conditions = [];
-
-    // Búsqueda genérica por código o color
     if (filters.q) {
       const pattern = `%${filters.q}%`;
-      conditions.push(
-        or(
-          like(garments.code, pattern),
-          like(garments.color, pattern)
-        )
-      );
+      conditions.push(or(like(garments.code, pattern), like(garments.color, pattern), like(garments.description, pattern), sql`${garments.customAttributes}::text ILIKE ${pattern}`));
     }
-
-    if (filters.code) {
-      conditions.push(eq(garments.code, filters.code));
-    }
-    if (filters.categoryId) {
-      conditions.push(eq(garments.categoryId, filters.categoryId));
-    }
-    if (filters.garmentTypeId) {
-      conditions.push(eq(garments.garmentTypeId, filters.garmentTypeId));
-    }
-    if (filters.collectionId) {
-      conditions.push(eq(garments.collectionId, filters.collectionId));
-    }
-    if (filters.lotId) {
-      conditions.push(eq(garments.lotId, filters.lotId));
-    }
-    if (filters.rackId) {
-      conditions.push(eq(garments.rackId, filters.rackId));
-    }
-    if (filters.size) {
-      conditions.push(eq(garments.size, filters.size));
-    }
-    if (filters.color) {
-      conditions.push(like(garments.color, `%${filters.color}%`));
-    }
-    if (filters.gender) {
-      conditions.push(eq(garments.gender, filters.gender));
-    }
-    if (filters.status) {
-      conditions.push(eq(garments.status, filters.status as any));
-    }
+    if (filters.code) conditions.push(eq(garments.code, filters.code));
+    if (filters.categoryId) conditions.push(eq(garments.categoryId, filters.categoryId));
+    if (filters.garmentTypeId) conditions.push(eq(garments.garmentTypeId, filters.garmentTypeId));
+    if (filters.collectionId) conditions.push(eq(garments.collectionId, filters.collectionId));
+    if (filters.yearId) conditions.push(eq(garments.yearId, filters.yearId));
+    if (filters.lotId) conditions.push(eq(garments.lotId, filters.lotId));
+    if (filters.rackId) conditions.push(eq(garments.rackId, filters.rackId));
+    if (filters.size) conditions.push(eq(garments.size, filters.size));
+    if (filters.color) conditions.push(like(garments.color, `%${filters.color}%`));
+    if (filters.gender) conditions.push(eq(garments.gender, filters.gender));
+    if (filters.status) conditions.push(eq(garments.status, filters.status as any));
 
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as any;
     }
 
-    return await query;
+    return await query.orderBy(desc(garments.createdAt));
   }
 
-
   async getGarments(): Promise<Garment[]> {
-    // Lista completa (para /api/garments)
     return await db.select().from(garments).orderBy(desc(garments.createdAt));
   }
 
@@ -408,65 +446,61 @@ async getNextGarmentCode(prefix: string = "GAR-MAR-"): Promise<string> {
   }
 
   async getGarmentsByRack(rackId: string): Promise<Garment[]> {
-    return await db.select().from(garments).where(eq(garments.rackId, rackId));
+    return await db.select().from(garments).where(eq(garments.rackId, rackId)).orderBy(desc(garments.createdAt));
   }
 
   async createGarment(garment: InsertGarment): Promise<Garment> {
-  // Normaliza galería: máximo 4 fotos, siempre array de strings
-  const photoUrls = Array.isArray((garment as any).photoUrls)
-    ? (garment as any).photoUrls.slice(0, 4).map((x: any) => String(x))
-    : [];
-
-  const normalized: any = {
-    ...garment,
-    photoUrls,
-    // Mantener compatibilidad: photoUrl = primera foto
-    photoUrl: photoUrls[0] || (garment as any).photoUrl || null,
-  };
-
-  const [created] = await db.insert(garments).values(normalized).returning();
-  return created;
-}
-
-async updateGarment(id: string, garment: Partial<InsertGarment>): Promise<Garment | undefined> {
-  // Normalizamos photoUrl/photoUrls para que siempre queden consistentes.
-  // Regla: photoUrl = primera foto de photoUrls, o null si no hay.
-  const updateData: any = { ...garment };
-
-  const hasPhotoUrls = Object.prototype.hasOwnProperty.call(updateData, "photoUrls");
-  const hasPhotoUrl = Object.prototype.hasOwnProperty.call(updateData, "photoUrl");
-
-  if (hasPhotoUrls) {
-    const arr = Array.isArray(updateData.photoUrls)
-      ? updateData.photoUrls.slice(0, 4).map((x: any) => String(x))
+    const photoUrls = Array.isArray((garment as any).photoUrls)
+      ? (garment as any).photoUrls.slice(0, 4).map((x: any) => String(x))
       : [];
-    updateData.photoUrls = arr;
-    updateData.photoUrl = arr[0] ?? null;
-  } else if (hasPhotoUrl) {
-    // Si llega solo photoUrl (legacy), lo convertimos a foto única.
-    if (updateData.photoUrl) {
-      updateData.photoUrls = [String(updateData.photoUrl)].slice(0, 4);
-    } else {
-      updateData.photoUrls = [];
-      updateData.photoUrl = null;
-    }
+
+    const normalized: any = {
+      ...garment,
+      photoUrls,
+      photoUrl: photoUrls[0] || (garment as any).photoUrl || null,
+      yearId: (garment as any).yearId || null,
+      description: (garment as any).description ?? null,
+      customAttributes: (garment as any).customAttributes && typeof (garment as any).customAttributes === "object" ? (garment as any).customAttributes : {},
+    };
+
+    const [created] = await db.insert(garments).values(normalized).returning();
+    return created;
   }
 
-  const [updated] = await db
-    .update(garments)
-    .set(updateData)
-    .where(eq(garments.id, id))
-    .returning();
+  async updateGarment(id: string, garment: Partial<InsertGarment>): Promise<Garment | undefined> {
+    const updateData: any = { ...garment };
+    const hasPhotoUrls = Object.prototype.hasOwnProperty.call(updateData, "photoUrls");
+    const hasPhotoUrl = Object.prototype.hasOwnProperty.call(updateData, "photoUrl");
 
-  return updated || undefined;
-}
+    if (hasPhotoUrls) {
+      const arr = Array.isArray(updateData.photoUrls)
+        ? updateData.photoUrls.slice(0, 4).map((x: any) => String(x))
+        : [];
+      updateData.photoUrls = arr;
+      updateData.photoUrl = arr[0] ?? null;
+    } else if (hasPhotoUrl) {
+      if (updateData.photoUrl) {
+        updateData.photoUrls = [String(updateData.photoUrl)].slice(0, 4);
+      } else {
+        updateData.photoUrls = [];
+        updateData.photoUrl = null;
+      }
+    }
+
+    if (updateData.yearId === "") updateData.yearId = null;
+    if (Object.prototype.hasOwnProperty.call(updateData, "customAttributes")) {
+      updateData.customAttributes = updateData.customAttributes && typeof updateData.customAttributes === "object" ? updateData.customAttributes : {};
+    }
+
+    const [updated] = await db.update(garments).set(updateData).where(eq(garments.id, id)).returning();
+    return updated || undefined;
+  }
 
   async deleteGarment(id: string): Promise<boolean> {
     const result = await db.delete(garments).where(eq(garments.id, id));
     return result.rowCount !== null && result.rowCount > 0;
   }
 
-  // Movements
   async getMovementsByGarment(garmentId: string): Promise<Movement[]> {
     return await db.select().from(movements).where(eq(movements.garmentId, garmentId)).orderBy(desc(movements.movedAt));
   }
@@ -476,32 +510,23 @@ async updateGarment(id: string, garment: Partial<InsertGarment>): Promise<Garmen
     return created;
   }
 
-  // Atomic move operation with transaction
   async moveGarment(
     garmentId: string,
     toRackId: string | null,
     toStatus: string,
     movedById: string,
-    note?: string
+    note?: string,
   ): Promise<{ garment: Garment; movement: Movement }> {
     return await db.transaction(async (tx) => {
-      // Get current garment state
       const [currentGarment] = await tx.select().from(garments).where(eq(garments.id, garmentId));
-      if (!currentGarment) {
-        throw new Error("Garment not found");
-      }
+      if (!currentGarment) throw new Error("Garment not found");
 
-      // Update garment
       const [updatedGarment] = await tx
         .update(garments)
-        .set({
-          rackId: toRackId,
-          status: toStatus as any,
-        })
+        .set({ rackId: toRackId, status: toStatus as any })
         .where(eq(garments.id, garmentId))
         .returning();
 
-      // Create movement record
       const [movement] = await tx
         .insert(movements)
         .values({

@@ -15,6 +15,7 @@ type ParsedTaxonomyWorkbook = {
   firstSheet: string;
   categories: string[];
   types: string[];
+  years: number[];
   collectionLotRows: CollectionLotRow[];
 };
 
@@ -128,6 +129,7 @@ export function parseTaxonomyWorkbook(buffer: Buffer): ParsedTaxonomyWorkbook {
 
   const rawCategories: string[] = [];
   const rawTypes: string[] = [];
+  const rawYears: number[] = [];
   const collectionLotRows: CollectionLotRow[] = [];
 
   for (const row of dataRows) {
@@ -147,6 +149,7 @@ export function parseTaxonomyWorkbook(buffer: Buffer): ParsedTaxonomyWorkbook {
 
     if (category) rawCategories.push(category);
     if (type) rawTypes.push(type);
+    if (year) rawYears.push(year);
 
     // Collections + lots sí dependen de fila
     if (collection && lot) {
@@ -163,6 +166,7 @@ export function parseTaxonomyWorkbook(buffer: Buffer): ParsedTaxonomyWorkbook {
     firstSheet,
     categories: uniqueStrings(rawCategories),
     types: uniqueStrings(rawTypes),
+    years: Array.from(new Set(rawYears)).sort((a, b) => a - b),
     collectionLotRows,
   };
 }
@@ -271,8 +275,13 @@ async function getOrCreateLot(
 }
 
 export async function importTaxonomyBuffer(buffer: Buffer) {
-  const { firstSheet, categories: parsedCategories, types: parsedTypes, collectionLotRows } =
-    parseTaxonomyWorkbook(buffer);
+  const {
+    firstSheet,
+    categories: parsedCategories,
+    types: parsedTypes,
+    years: parsedYears,
+    collectionLotRows,
+  } = parseTaxonomyWorkbook(buffer);
 
   const counters: ImportCounters = {
     categoriesInserted: 0,
@@ -284,6 +293,10 @@ export async function importTaxonomyBuffer(buffer: Buffer) {
     processedRows: 0,
   };
 
+  for (const year of parsedYears) {
+    counters.processedRows += 1;
+    await getOrCreateYear(year, counters);
+  }
   for (const category of parsedCategories) {
     counters.processedRows += 1;
     await getOrCreateCategory(category, counters);

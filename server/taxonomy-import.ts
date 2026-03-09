@@ -4,13 +4,18 @@ import { db } from "./db";
 import { categories, collections, garmentTypes, lots, years } from "@shared/schema";
 import { and, eq, isNull, sql } from "drizzle-orm";
 
-type TaxonomyRow = {
-  category: string;
-  type: string;
+type CollectionLotRow = {
   collection: string;
   year: number | null;
   lot: string;
   lotDescription: string;
+};
+
+type ParsedTaxonomyWorkbook = {
+  firstSheet: string;
+  categories: string[];
+  types: string[];
+  collectionLotRows: CollectionLotRow[];
 };
 
 type ImportCounters = {
@@ -23,13 +28,7 @@ type ImportCounters = {
   processedRows: number;
 };
 
-const EXPECTED_HEADERS = [
-  "category",
-  "type",
-  "collection",
-  "year",
-  "lot",
-];
+const EXPECTED_HEADERS = ["category", "type", "collection", "year", "lot"];
 
 function normalizeText(value: unknown) {
   return String(value ?? "")
@@ -75,26 +74,38 @@ function findHeaderIndex(rows: any[][]) {
 function mapHeaderName(value: unknown) {
   const v = canonicalKey(value);
 
-  if (v === "categoria") return "category";
-  if (v === "categoría") return "category";
-  if (v === "type") return "type";
-  if (v === "tipo") return "type";
-  if (v === "collection") return "collection";
-  if (v === "coleccion") return "collection";
-  if (v === "colección") return "collection";
-  if (v === "year") return "year";
-  if (v === "ano" || v === "anio" || v === "año") return "year";
-  if (v === "lot") return "lot";
-  if (v === "lote") return "lot";
-  if (v === "lot description") return "lotdescription";
-  if (v === "lot_description") return "lotdescription";
-  if (v === "descripcion del lote") return "lotdescription";
-  if (v === "descripción del lote") return "lotdescription";
+  if (v === "categoria" || v === "categoría") return "category";
+  if (v === "type" || v === "tipo") return "type";
+  if (v === "collection" || v === "coleccion" || v === "colección") return "collection";
+  if (v === "year" || v === "ano" || v === "anio" || v === "año") return "year";
+  if (v === "lot" || v === "lote") return "lot";
+  if (
+    v === "lot description" ||
+    v === "lot_description" ||
+    v === "descripcion del lote" ||
+    v === "descripción del lote"
+  ) {
+    return "lotdescription";
+  }
 
   return v;
 }
 
-export function parseTaxonomyWorkbook(buffer: Buffer) {
+function uniqueStrings(values: string[]) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const value of values) {
+    const key = canonicalKey(value);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(value);
+  }
+
+  return result;
+}
+
+export function parseTaxonomyWorkbook(buffer: Buffer): ParsedTaxonomyWorkbook {
   const workbook = xlsx.read(buffer, { type: "buffer" });
   const firstSheet = workbook.SheetNames[0];
   const worksheet = workbook.Sheets[firstSheet];
@@ -114,7 +125,10 @@ export function parseTaxonomyWorkbook(buffer: Buffer) {
   }
 
   const dataRows = rows.slice(headerIndex + 1);
-  const parsedRows: TaxonomyRow[] = [];
+
+  const rawCategories: string[] = [];
+  const rawTypes: string[] = [];
+  const collectionLotRows: CollectionLotRow[] = [];
 
   for (const row of dataRows) {
     if (!row || row.every((cell) => normalizeText(cell) === "")) continue;
@@ -128,21 +142,29 @@ export function parseTaxonomyWorkbook(buffer: Buffer) {
     const lotDescription = normalizeText(record.lotdescription);
 
     const yearRaw = normalizeText(record.year);
-    const year = yearRaw ? Number(String(yearRaw).replace(/[^0-9]/g, "")) : null;
+    const yearParsed = yearRaw ? Number(String(yearRaw).replace(/[^0-9]/g, "")) : null;
+    const year = Number.isFinite(yearParsed) ? yearParsed : null;
 
-    if (!category || !type || !collection || !lot) continue;
+    if (category) rawCategories.push(category);
+    if (type) rawTypes.push(type);
 
-    parsedRows.push({
-      category,
-      type,
-      collection,
-      year: Number.isFinite(year) ? year : null,
-      lot,
-      lotDescription,
-    });
+    // Collections + lots sí dependen de fila
+    if (collection && lot) {
+      collectionLotRows.push({
+        collection,
+        year,
+        lot,
+        lotDescription,
+      });
+    }
   }
 
-  return { firstSheet, parsedRows };
+  return {
+    firstSheet,
+    categories: uniqueStrings(rawCategories),
+    types: uniqueStrings(rawTypes),
+    collectionLotRows,
+  };
 }
 
 async function getOrCreateCategory(name: string, counters: ImportCounters) {
@@ -163,10 +185,12 @@ async function getOrCreateType(name: string, counters: ImportCounters) {
   const [existing] = await db
     .select()
     .from(garmentTypes)
-    .where(and(
-      sql`lower(${garmentTypes.name}) = lower(${name})`,
-      isNull(garmentTypes.categoryId),
-    ))
+    .where(
+      and(
+        sql`lower(${garmentTypes.name}) = lower(${name})`,
+        isNull(garmentTypes.categoryId),
+      )
+    )
     .limit(1);
 
   if (existing) return existing;
@@ -220,10 +244,12 @@ async function getOrCreateLot(
   const [existing] = await db
     .select()
     .from(lots)
-    .where(and(
-      eq(lots.collectionId, collectionId),
-      sql`lower(${lots.name}) = lower(${lotName})`
-    ))
+    .where(
+      and(
+        eq(lots.collectionId, collectionId),
+        sql`lower(${lots.name}) = lower(${lotName})`
+      )
+    )
     .limit(1);
 
   if (existing) return existing;
@@ -245,7 +271,8 @@ async function getOrCreateLot(
 }
 
 export async function importTaxonomyBuffer(buffer: Buffer) {
-  const { firstSheet, parsedRows } = parseTaxonomyWorkbook(buffer);
+  const { firstSheet, categories: parsedCategories, types: parsedTypes, collectionLotRows } =
+    parseTaxonomyWorkbook(buffer);
 
   const counters: ImportCounters = {
     categoriesInserted: 0,
@@ -257,16 +284,23 @@ export async function importTaxonomyBuffer(buffer: Buffer) {
     processedRows: 0,
   };
 
-  for (const row of parsedRows) {
+  for (const category of parsedCategories) {
+    counters.processedRows += 1;
+    await getOrCreateCategory(category, counters);
+  }
+
+  for (const type of parsedTypes) {
+    counters.processedRows += 1;
+    await getOrCreateType(type, counters);
+  }
+
+  for (const row of collectionLotRows) {
     counters.processedRows += 1;
 
-    if (!row.category || !row.type || !row.collection || !row.lot) {
+    if (!row.collection || !row.lot) {
       counters.skippedRows += 1;
       continue;
     }
-
-    await getOrCreateCategory(row.category, counters);
-    await getOrCreateType(row.type, counters);
 
     const collection = await getOrCreateCollection(row.collection, counters);
 
@@ -284,7 +318,9 @@ export async function importTaxonomyBuffer(buffer: Buffer) {
 
   return {
     sheet: firstSheet,
-    rows: parsedRows.length,
+    categoriesFound: parsedCategories.length,
+    typesFound: parsedTypes.length,
+    collectionLotRowsFound: collectionLotRows.length,
     ...counters,
   };
 }

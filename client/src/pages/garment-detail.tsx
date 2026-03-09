@@ -42,6 +42,7 @@ type Garment = {
   category?: { id: string; name: string } | null;
   garmentType?: { id: string; name: string } | null;
   collection?: { id: string; name: string } | null;
+  year?: { id: string; year: number; label?: string | null } | null;
   customAttributes?: Record<string, string> | null;
   lot?: { id: string; code: string; name: string } | null;
 
@@ -376,7 +377,50 @@ export default function GarmentDetailPage() {
                 {statusLabel(garment.status)}
               </p>
             </div>
+            
+            {(garment.year || garment.description || (garment.customAttributes && Object.keys(garment.customAttributes).length > 0)) && (
+              <div className="sm:col-span-2 space-y-4">
+                {garment.year && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Year</p>
+                    <div className="rounded-md border p-3 text-sm font-medium">
+                      {garment.year.label || garment.year.year}
+                    </div>
+                  </div>
+                )}
 
+                {garment.description && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">Notes</p>
+                    <div className="rounded-md border p-3 text-sm whitespace-pre-wrap">
+                      {garment.description}
+                    </div>
+                  </div>
+                )}
+
+                {garment.customAttributes && Object.keys(garment.customAttributes).length > 0 && (
+                  <div>
+                    <p className="text-sm font-medium text-muted-foreground mb-1">
+                      Custom attributes
+                    </p>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                      {Object.entries(garment.customAttributes).map(([key, value]) => (
+                        <div key={key} className="rounded-md border p-3">
+                          <p className="text-xs uppercase tracking-wide text-muted-foreground">
+                            {key.replace(/_/g, " ")}
+                          </p>
+                          <p className="text-sm font-medium mt-1">
+                            {String(value || "—")}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            
             <Separator className="sm:col-span-2" />
 
             <div className="sm:col-span-2 flex items-start justify-between gap-3">

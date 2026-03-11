@@ -158,12 +158,54 @@ export class DatabaseStorage implements IStorage {
 
     if (filters.q) {
       const pattern = `%${filters.q}%`;
+
       conditions.push(
         or(
-          like(garments.code, pattern),
-          like(garments.color, pattern),
-          like(garments.description, pattern),
+          sql`${garments.code} ILIKE ${pattern}`,
+          sql`${garments.color} ILIKE ${pattern}`,
+          sql`${garments.description} ILIKE ${pattern}`,
           sql`${garments.customAttributes}::text ILIKE ${pattern}`,
+
+          sql`exists (
+            select 1
+            from ${categories}
+            where ${categories.id} = ${garments.categoryId}
+              and ${categories.name} ILIKE ${pattern}
+          )`,
+
+          sql`exists (
+            select 1
+            from ${garmentTypes}
+            where ${garmentTypes.id} = ${garments.garmentTypeId}
+              and ${garmentTypes.name} ILIKE ${pattern}
+          )`,
+
+          sql`exists (
+            select 1
+            from ${collections}
+            where ${collections.id} = ${garments.collectionId}
+              and ${collections.name} ILIKE ${pattern}
+          )`,
+
+          sql`exists (
+            select 1
+            from ${lots}
+            where ${lots.id} = ${garments.lotId}
+              and (
+                ${lots.name} ILIKE ${pattern}
+                or ${lots.code} ILIKE ${pattern}
+              )
+          )`,
+
+          sql`exists (
+            select 1
+            from ${racks}
+            where ${racks.id} = ${garments.rackId}
+              and (
+                ${racks.name} ILIKE ${pattern}
+                or ${racks.code} ILIKE ${pattern}
+              )
+          )`,
         ),
       );
     }
@@ -176,7 +218,7 @@ export class DatabaseStorage implements IStorage {
     if (filters.lotId) conditions.push(eq(garments.lotId, filters.lotId));
     if (filters.rackId) conditions.push(eq(garments.rackId, filters.rackId));
     if (filters.size) conditions.push(eq(garments.size, filters.size));
-    if (filters.color) conditions.push(like(garments.color, `%${filters.color}%`));
+    if (filters.color) conditions.push(sql`${garments.color} ILIKE ${`%${filters.color}%`}`);
     if (filters.gender) conditions.push(eq(garments.gender, filters.gender));
     if (filters.status) conditions.push(eq(garments.status, filters.status as any));
 
@@ -430,7 +472,7 @@ export class DatabaseStorage implements IStorage {
     return result.rowCount !== null && result.rowCount > 0;
   }
 
-    async searchGarments(filters: GarmentSearchFilters): Promise<Garment[]> {
+  async searchGarments(filters: GarmentSearchFilters): Promise<Garment[]> {
     let query = db.select().from(garments);
     const conditions = this.buildGarmentSearchConditions(filters);
 

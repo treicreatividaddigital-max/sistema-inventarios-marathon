@@ -1,12 +1,9 @@
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { Search as SearchIcon, SlidersHorizontal, X } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
-import {
-  Card,
-  CardContent,
-} from "@/components/ui/card";
+import { Card, CardContent } from "@/components/ui/card";
 import {
   Select,
   SelectContent,
@@ -18,7 +15,14 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Label } from "@/components/ui/label";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { useGarmentSearch, type GarmentSearchFilters } from "@/hooks/use-garment-search";
 import { GarmentCard } from "@/components/garment-card";
 
@@ -30,49 +34,104 @@ type Collection = { id: string; name: string };
 type Lot = { id: string; name: string; code: string };
 type Rack = { id: string; name: string; code: string };
 
+const PAGE_SIZE = 24;
+const SEARCH_DEBOUNCE_MS = 350;
+
 export default function SearchPage() {
   const [searchQuery, setSearchQuery] = useState("");
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [filters, setFilters] = useState<FilterState>({});
   const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [offset, setOffset] = useState(0);
+  const [allItems, setAllItems] = useState<any[]>([]);
 
-  const { data: garments = [], isLoading: garmentsLoading } = useGarmentSearch({
-    q: searchQuery,
-    ...filters,
-  });
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setDebouncedSearchQuery(searchQuery.trim());
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [searchQuery]);
+
+  const searchParams = useMemo(
+    () => ({
+      q: debouncedSearchQuery,
+      ...filters,
+      limit: PAGE_SIZE,
+      offset,
+    }),
+    [debouncedSearchQuery, filters, offset],
+  );
+
+  const { data: searchResult, isLoading: garmentsLoading } = useGarmentSearch(searchParams);
+
+  const garments = searchResult?.items ?? [];
+  const total = searchResult?.total ?? 0;
+  const hasMore = searchResult?.hasMore ?? false;
+
+  useEffect(() => {
+    if (!searchResult) return;
+
+    if (offset === 0) {
+      setAllItems(searchResult.items);
+      return;
+    }
+
+    setAllItems((prev) => {
+      const seen = new Set(prev.map((item) => item.id));
+      const next = [...prev];
+      for (const item of searchResult.items) {
+        if (!seen.has(item.id)) next.push(item);
+      }
+      return next;
+    });
+  }, [searchResult, offset]);
+
+  useEffect(() => {
+    setOffset(0);
+  }, [debouncedSearchQuery, filters]);
 
   const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
+    staleTime: 5 * 60_000,
   });
 
   const { data: types = [] } = useQuery<GarmentType[]>({
     queryKey: ["/api/garment-types"],
+    staleTime: 5 * 60_000,
   });
 
   const { data: collections = [] } = useQuery<Collection[]>({
     queryKey: ["/api/collections"],
+    staleTime: 5 * 60_000,
   });
 
   const { data: lots = [] } = useQuery<Lot[]>({
     queryKey: ["/api/lots"],
+    staleTime: 5 * 60_000,
   });
 
   const { data: racks = [] } = useQuery<Rack[]>({
     queryKey: ["/api/racks"],
+    staleTime: 5 * 60_000,
   });
 
   const activeFiltersCount = Object.values(filters).filter(Boolean).length;
 
   const clearFilter = (key: keyof FilterState) => {
     setFilters((prev) => {
-      const newFilters = { ...prev };
-      delete newFilters[key];
-      return newFilters;
+      const next = { ...prev };
+      delete next[key];
+      return next;
     });
   };
 
   const clearAllFilters = () => {
     setFilters({});
     setSearchQuery("");
+    setDebouncedSearchQuery("");
+    setOffset(0);
+    setAllItems([]);
   };
 
   const FilterContent = () => (
@@ -245,7 +304,7 @@ export default function SearchPage() {
         <Select
           value={filters.gender}
           onValueChange={(value) =>
-            setFilters((prev) => ({ ...prev, gender: value === "all" ? undefined : value }))
+            setFilters((prev) => ({ ...prev, gender: value === "all" ? undefined : value as FilterState["gender"] }))
           }
         >
           <SelectTrigger id="filter-gender" data-testid="select-gender">
@@ -299,9 +358,7 @@ export default function SearchPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-semibold">Search Inventory</h1>
-        <p className="text-muted-foreground mt-2">
-          Find garments using filters and search
-        </p>
+        <p className="text-muted-foreground mt-2">Find garments using filters and search</p>
       </div>
 
       <div className="flex flex-col gap-4 md:flex-row md:items-center">
@@ -331,9 +388,7 @@ export default function SearchPage() {
           <SheetContent side="left" className="w-80">
             <SheetHeader>
               <SheetTitle>Filters</SheetTitle>
-              <SheetDescription>
-                Narrow down your search with filters
-              </SheetDescription>
+              <SheetDescription>Narrow down your search with filters</SheetDescription>
             </SheetHeader>
             <ScrollArea className="h-[calc(100vh-8rem)] mt-6">
               <FilterContent />
@@ -358,10 +413,7 @@ export default function SearchPage() {
           {filters.categoryId && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-category">
               Category: {categories.find((c) => c.id === filters.categoryId)?.name}
-              <button
-                onClick={() => clearFilter("categoryId")}
-                className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5"
-              >
+              <button onClick={() => clearFilter("categoryId")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -369,10 +421,7 @@ export default function SearchPage() {
           {filters.garmentTypeId && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-garmentType">
               Type: {types.find((t) => t.id === filters.garmentTypeId)?.name}
-              <button
-                onClick={() => clearFilter("garmentTypeId")}
-                className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5"
-              >
+              <button onClick={() => clearFilter("garmentTypeId")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -380,10 +429,7 @@ export default function SearchPage() {
           {filters.collectionId && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-collection">
               Collection: {collections.find((c) => c.id === filters.collectionId)?.name}
-              <button
-                onClick={() => clearFilter("collectionId")}
-                className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5"
-              >
+              <button onClick={() => clearFilter("collectionId")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -391,10 +437,7 @@ export default function SearchPage() {
           {filters.lotId && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-lot">
               Lot: {lots.find((l) => l.id === filters.lotId)?.name}
-              <button
-                onClick={() => clearFilter("lotId")}
-                className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5"
-              >
+              <button onClick={() => clearFilter("lotId")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -402,10 +445,7 @@ export default function SearchPage() {
           {filters.size && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-size">
               Size: {filters.size}
-              <button
-                onClick={() => clearFilter("size")}
-                className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5"
-              >
+              <button onClick={() => clearFilter("size")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -413,10 +453,7 @@ export default function SearchPage() {
           {filters.color && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-color">
               Color: {filters.color}
-              <button
-                onClick={() => clearFilter("color")}
-                className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5"
-              >
+              <button onClick={() => clearFilter("color")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -424,10 +461,7 @@ export default function SearchPage() {
           {filters.gender && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-gender">
               Gender: {filters.gender}
-              <button
-                onClick={() => clearFilter("gender")}
-                className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5"
-              >
+              <button onClick={() => clearFilter("gender")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -435,10 +469,7 @@ export default function SearchPage() {
           {filters.status && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-status">
               Status: {filters.status.replace(/_/g, " ")}
-              <button
-                onClick={() => clearFilter("status")}
-                className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5"
-              >
+              <button onClick={() => clearFilter("status")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -448,14 +479,18 @@ export default function SearchPage() {
 
       <div>
         <p className="text-sm text-muted-foreground mb-4" data-testid="text-results-count">
-          {garmentsLoading ? "Loading..." : `${garments.length} result${garments.length !== 1 ? "s" : ""} found`}
+          {garmentsLoading
+            ? "Loading..."
+            : total > allItems.length
+              ? `Showing ${allItems.length} of ${total} results`
+              : `${total} result${total !== 1 ? "s" : ""} found`}
         </p>
 
-        {garmentsLoading ? (
+        {garmentsLoading && offset === 0 ? (
           <div className="flex items-center justify-center py-16">
             <div className="text-lg text-muted-foreground">Loading garments...</div>
           </div>
-        ) : garments.length === 0 ? (
+        ) : total === 0 ? (
           <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             <Card className="col-span-full">
               <CardContent className="flex flex-col items-center justify-center py-16">
@@ -468,10 +503,25 @@ export default function SearchPage() {
             </Card>
           </div>
         ) : (
-          <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-            {garments.map((garment) => (
-              <GarmentCard key={garment.id} garment={garment} />
-            ))}
+          <div className="space-y-6">
+            <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+              {allItems.map((garment) => (
+                <GarmentCard key={garment.id} garment={garment} />
+              ))}
+            </div>
+
+            {hasMore && (
+              <div className="flex justify-center">
+                <Button
+                  variant="outline"
+                  onClick={() => setOffset((prev) => prev + PAGE_SIZE)}
+                  disabled={garmentsLoading}
+                  data-testid="button-load-more-results"
+                >
+                  {garmentsLoading ? "Loading..." : "Load more"}
+                </Button>
+              </div>
+            )}
           </div>
         )}
       </div>

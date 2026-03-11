@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { Link } from "wouter";
 import { Package2, Edit, AlertTriangle } from "lucide-react";
 import {
@@ -53,6 +54,9 @@ export function GarmentCard({ garment }: GarmentCardProps) {
   const { user } = useAuth();
   const canEdit = user?.role === "CURATOR";
 
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [imageFailed, setImageFailed] = useState(false);
+
   // Determine missing data
   const missingData: string[] = [];
   if (!garment.photoUrl) missingData.push("photo");
@@ -60,6 +64,7 @@ export function GarmentCard({ garment }: GarmentCardProps) {
   if (!garment.lot) missingData.push("lot");
 
   const hasMissingData = missingData.length > 0;
+  const showPhoto = Boolean(garment.photoUrl) && !imageFailed;
 
   return (
     <Card className="hover-elevate active-elevate-2 h-full relative" data-testid={`card-garment-${garment.id}`}>
@@ -101,25 +106,47 @@ export function GarmentCard({ garment }: GarmentCardProps) {
           </Badge>
         </div>
       </CardHeader>
+
       <CardContent>
-        {/* Photo or placeholder */}
         <Link href={`/garment/${garment.code}`}>
-          {garment.photoUrl ? (
-            <img
-              src={garment.photoUrl}
-              alt={garment.code}
-              className="w-full h-40 object-cover rounded-md mb-3 cursor-pointer"
-              data-testid={`img-photo-${garment.id}`}
-            />
-          ) : (
-            <div className="w-full h-40 bg-muted rounded-md flex flex-col items-center justify-center mb-3 cursor-pointer" data-testid={`placeholder-photo-${garment.id}`}>
-              <Package2 className="h-12 w-12 text-muted-foreground mb-2" />
-              <p className="text-xs text-muted-foreground">Sin foto</p>
-            </div>
-          )}
+          <div className="relative w-full h-40 rounded-md mb-3 overflow-hidden bg-muted cursor-pointer">
+            {showPhoto ? (
+              <>
+                {!imageLoaded && (
+                  <div
+                    className="absolute inset-0 animate-pulse bg-muted"
+                    data-testid={`img-loading-${garment.id}`}
+                  />
+                )}
+                <img
+                  src={garment.photoUrl!}
+                  alt={garment.code}
+                  loading="lazy"
+                  decoding="async"
+                  fetchPriority="low"
+                  onLoad={() => setImageLoaded(true)}
+                  onError={() => {
+                    setImageFailed(true);
+                    setImageLoaded(false);
+                  }}
+                  className={`w-full h-full object-cover transition-opacity duration-200 ${
+                    imageLoaded ? "opacity-100" : "opacity-0"
+                  }`}
+                  data-testid={`img-photo-${garment.id}`}
+                />
+              </>
+            ) : (
+              <div
+                className="w-full h-full flex flex-col items-center justify-center"
+                data-testid={`placeholder-photo-${garment.id}`}
+              >
+                <Package2 className="h-12 w-12 text-muted-foreground mb-2" />
+                <p className="text-xs text-muted-foreground">Sin foto</p>
+              </div>
+            )}
+          </div>
         </Link>
 
-        {/* Missing data indicator */}
         {hasMissingData && (
           <div className="mb-3 flex items-center gap-2 bg-orange-500/10 border border-orange-500/20 rounded-md px-2 py-1.5" data-testid={`alert-missing-${garment.id}`}>
             <AlertTriangle className="h-3.5 w-3.5 text-orange-600 dark:text-orange-400 shrink-0" />
@@ -129,7 +156,6 @@ export function GarmentCard({ garment }: GarmentCardProps) {
           </div>
         )}
 
-        {/* Garment details */}
         <div className="space-y-1 text-sm">
           {garment.category && (
             <p className="text-muted-foreground" data-testid={`text-category-${garment.id}`}>

@@ -37,8 +37,35 @@ import {
   type InsertMovement,
 } from "@shared/schema";
 
+export type GarmentSearchFilters = {
+  q?: string;
+  code?: string;
+  categoryId?: string;
+  garmentTypeId?: string;
+  collectionId?: string;
+  yearId?: string;
+  lotId?: string;
+  rackId?: string;
+  size?: string;
+  color?: string;
+  gender?: "MALE" | "FEMALE" | "UNISEX";
+  status?: string;
+};
+
+export type GarmentSearchPagedFilters = GarmentSearchFilters & {
+  limit: number;
+  offset: number;
+};
+
+export type GarmentSearchPagedResult = {
+  items: Garment[];
+  total: number;
+};
+
 export interface IStorage {
   getGarments(): Promise<Garment[]>;
+
+  // Users
 
   // Users
   getUser(id: string): Promise<User | undefined>;
@@ -99,20 +126,8 @@ export interface IStorage {
   deleteRack(id: string): Promise<boolean>;
 
   // Garments
-  searchGarments(filters: {
-    q?: string;
-    code?: string;
-    categoryId?: string;
-    garmentTypeId?: string;
-    collectionId?: string;
-    yearId?: string;
-    lotId?: string;
-    rackId?: string;
-    size?: string;
-    color?: string;
-    gender?: "MALE" | "FEMALE" | "UNISEX";
-    status?: string;
-  }): Promise<Garment[]>;
+  searchGarments(filters: GarmentSearchFilters): Promise<Garment[]>;
+  searchGarmentsPaged(filters: GarmentSearchPagedFilters): Promise<GarmentSearchPagedResult>;
   getGarment(id: string): Promise<Garment | undefined>;
   getGarmentByCode(code: string): Promise<Garment | undefined>;
   getGarmentsByRack(rackId: string): Promise<Garment[]>;
@@ -136,6 +151,36 @@ export interface IStorage {
 export class DatabaseStorage implements IStorage {
   private escapeRegex(value: string) {
     return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  }
+
+  private buildGarmentSearchConditions(filters: GarmentSearchFilters) {
+    const conditions = [] as any[];
+
+    if (filters.q) {
+      const pattern = `%${filters.q}%`;
+      conditions.push(
+        or(
+          like(garments.code, pattern),
+          like(garments.color, pattern),
+          like(garments.description, pattern),
+          sql`${garments.customAttributes}::text ILIKE ${pattern}`,
+        ),
+      );
+    }
+
+    if (filters.code) conditions.push(eq(garments.code, filters.code));
+    if (filters.categoryId) conditions.push(eq(garments.categoryId, filters.categoryId));
+    if (filters.garmentTypeId) conditions.push(eq(garments.garmentTypeId, filters.garmentTypeId));
+    if (filters.collectionId) conditions.push(eq(garments.collectionId, filters.collectionId));
+    if (filters.yearId) conditions.push(eq(garments.yearId, filters.yearId));
+    if (filters.lotId) conditions.push(eq(garments.lotId, filters.lotId));
+    if (filters.rackId) conditions.push(eq(garments.rackId, filters.rackId));
+    if (filters.size) conditions.push(eq(garments.size, filters.size));
+    if (filters.color) conditions.push(like(garments.color, `%${filters.color}%`));
+    if (filters.gender) conditions.push(eq(garments.gender, filters.gender));
+    if (filters.status) conditions.push(eq(garments.status, filters.status as any));
+
+    return conditions;
   }
 
   async getUser(id: string): Promise<User | undefined> {
@@ -385,44 +430,43 @@ export class DatabaseStorage implements IStorage {
     return result.rowCount !== null && result.rowCount > 0;
   }
 
-  async searchGarments(filters: {
-    q?: string;
-    code?: string;
-    categoryId?: string;
-    garmentTypeId?: string;
-    collectionId?: string;
-    yearId?: string;
-    lotId?: string;
-    rackId?: string;
-    size?: string;
-    color?: string;
-    gender?: "MALE" | "FEMALE" | "UNISEX";
-    status?: string;
-  }): Promise<Garment[]> {
+    async searchGarments(filters: GarmentSearchFilters): Promise<Garment[]> {
     let query = db.select().from(garments);
-    const conditions = [] as any[];
-
-    if (filters.q) {
-      const pattern = `%${filters.q}%`;
-      conditions.push(or(like(garments.code, pattern), like(garments.color, pattern), like(garments.description, pattern), sql`${garments.customAttributes}::text ILIKE ${pattern}`));
-    }
-    if (filters.code) conditions.push(eq(garments.code, filters.code));
-    if (filters.categoryId) conditions.push(eq(garments.categoryId, filters.categoryId));
-    if (filters.garmentTypeId) conditions.push(eq(garments.garmentTypeId, filters.garmentTypeId));
-    if (filters.collectionId) conditions.push(eq(garments.collectionId, filters.collectionId));
-    if (filters.yearId) conditions.push(eq(garments.yearId, filters.yearId));
-    if (filters.lotId) conditions.push(eq(garments.lotId, filters.lotId));
-    if (filters.rackId) conditions.push(eq(garments.rackId, filters.rackId));
-    if (filters.size) conditions.push(eq(garments.size, filters.size));
-    if (filters.color) conditions.push(like(garments.color, `%${filters.color}%`));
-    if (filters.gender) conditions.push(eq(garments.gender, filters.gender));
-    if (filters.status) conditions.push(eq(garments.status, filters.status as any));
+    const conditions = this.buildGarmentSearchConditions(filters);
 
     if (conditions.length > 0) {
       query = query.where(and(...conditions)) as any;
     }
 
     return await query.orderBy(desc(garments.createdAt));
+  }
+
+  async searchGarmentsPaged(filters: GarmentSearchPagedFilters): Promise<GarmentSearchPagedResult> {
+    const conditions = this.buildGarmentSearchConditions(filters);
+
+    let itemsQuery = db.select().from(garments);
+    let totalQuery = db.select({ count: sql<number>`count(*)` }).from(garments);
+
+    if (conditions.length > 0) {
+      const whereClause = and(...conditions);
+      itemsQuery = itemsQuery.where(whereClause) as any;
+      totalQuery = totalQuery.where(whereClause) as any;
+    }
+
+    const [items, totalRows] = await Promise.all([
+      itemsQuery
+        .orderBy(desc(garments.createdAt))
+        .limit(filters.limit)
+        .offset(filters.offset),
+      totalQuery,
+    ]);
+
+    const total = Number(totalRows[0]?.count ?? 0);
+
+    return {
+      items,
+      total,
+    };
   }
 
   async getGarments(): Promise<Garment[]> {

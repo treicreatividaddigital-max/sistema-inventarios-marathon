@@ -1453,9 +1453,34 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.get("/api/garments/search", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const { query, status, categoryId, garmentTypeId, collectionId, yearId, lotId, rackId } = req.query as any;
-      const garments = await storage.searchGarments({
-        q: typeof query === "string" ? query : undefined,
+      const {
+        q,
+        query,
+        status,
+        categoryId,
+        garmentTypeId,
+        collectionId,
+        yearId,
+        lotId,
+        rackId,
+        size,
+        color,
+        gender,
+        limit,
+        offset,
+      } = req.query as any;
+
+      const parsedLimit = Math.min(
+        Math.max(Number.parseInt(String(limit ?? "24"), 10) || 24, 1),
+        100,
+      );
+      const parsedOffset = Math.max(
+        Number.parseInt(String(offset ?? "0"), 10) || 0,
+        0,
+      );
+
+      const filters = {
+        q: typeof q === "string" ? q : typeof query === "string" ? query : undefined,
         status: typeof status === "string" ? status : undefined,
         categoryId: typeof categoryId === "string" ? categoryId : undefined,
         garmentTypeId: typeof garmentTypeId === "string" ? garmentTypeId : undefined,
@@ -1463,8 +1488,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         yearId: typeof yearId === "string" ? yearId : undefined,
         lotId: typeof lotId === "string" ? lotId : undefined,
         rackId: typeof rackId === "string" ? rackId : undefined,
+        size: typeof size === "string" ? size : undefined,
+        color: typeof color === "string" ? color : undefined,
+        gender:
+          gender === "MALE" || gender === "FEMALE" || gender === "UNISEX"
+            ? gender
+            : undefined,
+        limit: parsedLimit,
+        offset: parsedOffset,
+      };
+
+      const result = await storage.searchGarmentsPaged(filters);
+      const items = await hydrateGarments(result.items as any[]);
+
+      res.json({
+        items,
+        total: result.total,
+        limit: parsedLimit,
+        offset: parsedOffset,
+        hasMore: parsedOffset + items.length < result.total,
       });
-      res.json(await hydrateGarments(garments as any[]));
     } catch (error) {
       next(error);
     }

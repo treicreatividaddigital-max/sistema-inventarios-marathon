@@ -28,7 +28,7 @@ import SearchableSelect from "@/components/ui/searchable-select";
 
 // 3 pasos: datos base, ubicación, fotos
 const formSchema = z.object({
-  // El código se autogenera. El backend también lo genera si no se envía.
+  // El código puede venir sugerido automáticamente, pero ahora también puede editarse manualmente.
   code: z.string().optional(),
   size: z.string().min(1, "Size is required"),
   color: z.string().min(1, "Color is required"),
@@ -45,7 +45,13 @@ const formSchema = z.object({
 
 type FormData = z.infer<typeof formSchema>;
 type PhotoItem = { file: File; previewUrl: string };
-type CustomFieldDef = { id: string; key: string; label: string; isRequired?: boolean; options: { id: string; value: string; label: string }[] };
+type CustomFieldDef = {
+  id: string;
+  key: string;
+  label: string;
+  isRequired?: boolean;
+  options: { id: string; value: string; label: string }[];
+};
 
 const SIZE_OPTIONS = [
   { value: "XS", label: "XS" },
@@ -64,6 +70,7 @@ export default function CuratorNewGarment() {
   const [photos, setPhotos] = useState<PhotoItem[]>([]);
   const [removeIdx, setRemoveIdx] = useState<number | null>(null);
   const [customAttributes, setCustomAttributes] = useState<Record<string, string>>({});
+  const [isCodeTouched, setIsCodeTouched] = useState(false);
 
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const filesInputRef = useRef<HTMLInputElement | null>(null);
@@ -80,7 +87,7 @@ export default function CuratorNewGarment() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       code: "",
-      size: "M", // default
+      size: "M",
       color: "",
       gender: "UNISEX",
       status: "IN_STOCK",
@@ -101,7 +108,7 @@ export default function CuratorNewGarment() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [collectionId]);
 
-  // 1) Traer el siguiente código automáticamente
+  // 1) Traer el siguiente código automáticamente como sugerencia
   const nextCodeQuery = useQuery<{ code: string }>({
     queryKey: ["/api/garments/next-code"],
     queryFn: getQueryFn({ on401: "throw" }),
@@ -110,10 +117,15 @@ export default function CuratorNewGarment() {
   useEffect(() => {
     const code = nextCodeQuery.data?.code;
     if (!code) return;
+
     const current = form.getValues("code");
-    if (!current) form.setValue("code", code);
+
+    // Solo autocompleta si el usuario todavía no ha tocado el campo
+    if (!isCodeTouched && !current) {
+      form.setValue("code", code);
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nextCodeQuery.data?.code]);
+  }, [nextCodeQuery.data?.code, isCodeTouched]);
 
   // 2) Datos para selects
   const { data: categories } = useQuery({
@@ -185,16 +197,17 @@ export default function CuratorNewGarment() {
 
   const createMutation = useMutation({
     mutationFn: async (data: FormData) => {
-      const missingRequired = (customFields ?? []).find((field) => field.isRequired && !customAttributes[field.key]);
+      const missingRequired = (customFields ?? []).find(
+        (field) => field.isRequired && !customAttributes[field.key],
+      );
       if (missingRequired) throw new Error(`${missingRequired.label} is required`);
 
       const fd = new window.FormData();
 
-      // Nota: el backend genera el code si viene vacío.
       Object.entries(data).forEach(([key, value]) => {
         if (value === undefined || value === null) return;
         if (typeof value === "string" && value.trim() === "") return;
-        fd.append(key, String(value));
+        fd.append(key, String(value).trim());
       });
 
       fd.append("customAttributes", JSON.stringify(customAttributes));
@@ -212,7 +225,6 @@ export default function CuratorNewGarment() {
         description: "The garment has been created successfully.",
       });
 
-      // Reset (mantener defaults)
       form.reset({
         code: "",
         size: "M",
@@ -229,28 +241,37 @@ export default function CuratorNewGarment() {
       });
 
       setCustomAttributes({});
+      setIsCodeTouched(false);
 
-      // limpiar previews
       setPhotos((prev) => {
         prev.forEach((p) => URL.revokeObjectURL(p.previewUrl));
         return [];
       });
 
-      // Refrescar el próximo código para la siguiente creación
       await nextCodeQuery.refetch();
 
       setLocation("/curator");
     },
-    onError: (error: Error) => {
+    onError: async (error: any) => {
+      let description = error?.message || "Something went wrong";
+
+      try {
+        if (error?.response) {
+          const data = await error.response.json();
+          if (data?.message) description = data.message;
+        }
+      } catch {
+        // dejamos el message original
+      }
+
       toast({
         title: "Error",
-        description: error.message,
+        description,
         variant: "destructive",
       });
     },
   });
 
-  // Solo curador puede crear
   if (!user || user.role !== "CURATOR") {
     return (
       <div className="p-6">
@@ -266,6 +287,8 @@ export default function CuratorNewGarment() {
     );
   }
 
+  const suggestedCode = nextCodeQuery.data?.code || "";
+
   return (
     <div className="p-6 max-w-2xl mx-auto">
       <Card>
@@ -275,16 +298,31 @@ export default function CuratorNewGarment() {
         <CardContent>
           <Form {...form}>
             <form onSubmit={form.handleSubmit((data) => createMutation.mutate(data))} className="space-y-6">
-              {/* CODE (autogenerado) */}
+              {/* CODE */}
               <FormField
                 control={form.control}
                 name="code"
                 render={({ field }) => (
                   <FormItem>
-                    <FormLabel>Garment Code (auto)</FormLabel>
+                    <FormLabel>Garment Code</FormLabel>
                     <FormControl>
-                      <Input {...field} disabled placeholder={nextCodeQuery.isLoading ? "Generating..." : ""} />
+                      <Input
+                        {...field}
+                        placeholder={nextCodeQuery.isLoading ? "Generating..." : "Enter custom code or use suggested one"}
+                        onChange={(e) => {
+                          setIsCodeTouched(true);
+                          field.onChange(e.target.value);
+                        }}
+                      />
                     </FormControl>
+                    {!nextCodeQuery.isLoading && suggestedCode ? (
+                      <p className="text-xs text-muted-foreground">
+                        Suggested code: {suggestedCode}
+                      </p>
+                    ) : null}
+                    <p className="text-xs text-muted-foreground">
+                      You can edit this value. If left empty, the backend will generate one automatically.
+                    </p>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -447,7 +485,6 @@ export default function CuratorNewGarment() {
                 )}
               />
 
-
               {/* YEAR */}
               <FormField
                 control={form.control}
@@ -520,13 +557,21 @@ export default function CuratorNewGarment() {
 
               {(customFields ?? []).map((field) => (
                 <FormItem key={field.id}>
-                  <FormLabel>{field.label}{field.isRequired ? " *" : ""}</FormLabel>
+                  <FormLabel>
+                    {field.label}
+                    {field.isRequired ? " *" : ""}
+                  </FormLabel>
                   <FormControl>
                     <SearchableSelect
                       value={customAttributes[field.key] || ""}
-                      onChange={(value) => setCustomAttributes((prev) => ({ ...prev, [field.key]: value }))}
+                      onChange={(value) =>
+                        setCustomAttributes((prev) => ({ ...prev, [field.key]: value }))
+                      }
                       placeholder={`Select ${field.label.toLowerCase()}`}
-                      options={(field.options ?? []).map((option) => ({ value: option.value, label: option.label }))}
+                      options={(field.options ?? []).map((option) => ({
+                        value: option.value,
+                        label: option.label,
+                      }))}
                     />
                   </FormControl>
                 </FormItem>
@@ -586,7 +631,6 @@ export default function CuratorNewGarment() {
                   </Button>
                 </div>
 
-                {/* Hidden inputs */}
                 <input
                   ref={cameraInputRef}
                   type="file"
@@ -626,7 +670,6 @@ export default function CuratorNewGarment() {
         </CardContent>
       </Card>
 
-      {/* Confirmación de borrado de foto */}
       <AlertDialog open={removeIdx !== null} onOpenChange={(open) => !open && setRemoveIdx(null)}>
         <AlertDialogContent>
           <AlertDialogHeader>

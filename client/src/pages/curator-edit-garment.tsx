@@ -13,11 +13,20 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Trash2, X } from "lucide-react";
 
 const formSchema = z.object({
-  // code no se puede cambiar (lo mostramos como readonly)
+  code: z.string().optional(),
   size: z.string().min(1, "Size is required"),
   color: z.string().min(1, "Color is required"),
   gender: z.enum(["MALE", "FEMALE", "UNISEX"]),
@@ -34,10 +43,21 @@ const formSchema = z.object({
 type FormValues = z.infer<typeof formSchema>;
 
 type PhotoItem = { file: File; previewUrl: string };
-type CustomFieldDef = { id: string; key: string; label: string; isRequired?: boolean; options: { id: string; value: string; label: string }[] };
+type CustomFieldDef = {
+  id: string;
+  key: string;
+  label: string;
+  isRequired?: boolean;
+  options: { id: string; value: string; label: string }[];
+};
 
 function makePreviewUrl(file: File) {
   return URL.createObjectURL(file);
+}
+
+function asFormValue(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  return String(value);
 }
 
 export default function CuratorEditGarment() {
@@ -46,7 +66,6 @@ export default function CuratorEditGarment() {
   const { toast } = useToast();
   const { user } = useAuth();
 
-  const isCurator = user?.role === "CURATOR";
   const isReadOnly = user?.role === "ADMIN" || user?.role === "USER";
 
   // Server will still enforce master curator via PRIMARY_CURATOR_EMAIL.
@@ -55,6 +74,7 @@ export default function CuratorEditGarment() {
   const [existingPhotoUrls, setExistingPhotoUrls] = useState<string[]>([]);
   const [newPhotos, setNewPhotos] = useState<PhotoItem[]>([]);
   const [customAttributes, setCustomAttributes] = useState<Record<string, string>>({});
+  const [isHydratingForm, setIsHydratingForm] = useState(false);
 
   const [confirmState, setConfirmState] = useState<
     | { open: false }
@@ -66,6 +86,8 @@ export default function CuratorEditGarment() {
 
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const uploadInputRef = useRef<HTMLInputElement | null>(null);
+  const previousCollectionIdRef = useRef<string>("");
+  const loadedGarmentIdRef = useRef<string>("");
 
   const garmentQuery = useQuery<any>({
     queryKey: ["/api/garments", id],
@@ -77,20 +99,23 @@ export default function CuratorEditGarment() {
     queryKey: ["/api/categories"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
-const collectionsQuery = useQuery({
+
+  const collectionsQuery = useQuery({
     queryKey: ["/api/collections"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
-const racksQuery = useQuery({
+
+  const racksQuery = useQuery({
     queryKey: ["/api/racks"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
-const yearsQuery = useQuery({
+
+  const yearsQuery = useQuery({
     queryKey: ["/api/years"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
 
-const customFieldsQuery = useQuery<CustomFieldDef[]>({
+  const customFieldsQuery = useQuery<CustomFieldDef[]>({
     queryKey: ["/api/custom-fields/garment"],
     queryFn: getQueryFn({ on401: "throw" }),
   });
@@ -100,6 +125,7 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
   const form = useForm<FormValues>({
     resolver: zodResolver(formSchema),
     defaultValues: {
+      code: "",
       size: "",
       color: "",
       gender: "UNISEX",
@@ -126,38 +152,53 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
     enabled: !!collectionId,
     queryFn: getQueryFn({ on401: "throw" }),
   });
-  // Cascada (EDIT): no limpiar en el primer render (mantener valores del garment cargado)
-  const didInitCascade = useRef(false);
 
+  // Si el usuario cambia la colección después de que el garment ya fue cargado,
+  // limpiamos el lote. En la carga inicial NO lo limpiamos.
   useEffect(() => {
-    if (!didInitCascade.current) return;
-    form.setValue("lotId", "");
-  }, [collectionId]);
+    if (isHydratingForm) return;
+    if (!loadedGarmentIdRef.current) return;
 
-  useEffect(() => {
-    didInitCascade.current = true;
-  }, []);
+    const previousCollectionId = previousCollectionIdRef.current;
+    const currentCollectionId = collectionId || "";
 
+    if (!previousCollectionId) {
+      previousCollectionIdRef.current = currentCollectionId;
+      return;
+    }
 
+    if (currentCollectionId !== previousCollectionId) {
+      form.setValue("lotId", "", { shouldDirty: true, shouldValidate: true });
+    }
 
+    previousCollectionIdRef.current = currentCollectionId;
+  }, [collectionId, form, isHydratingForm]);
 
   // Sincronizamos el form y las fotos al cargar la prenda
   useEffect(() => {
     if (!garment) return;
 
+    setIsHydratingForm(true);
+
+    const nextCollectionId = garment.collectionId || "";
+
     form.reset({
-      size: garment.size || "",
-      color: garment.color || "",
+      code: asFormValue(garment.code),
+      size: asFormValue(garment.size),
+      color: asFormValue(garment.color),
       gender: garment.gender || "UNISEX",
       status: garment.status || "IN_STOCK",
-      categoryId: garment.categoryId || "",
-      garmentTypeId: garment.garmentTypeId || "",
-      collectionId: garment.collectionId || "",
-      yearId: garment.yearId || "",
-      lotId: garment.lotId || "",
-      rackId: garment.rackId || "",
-      description: garment.description || "",
+      categoryId: asFormValue(garment.categoryId),
+      garmentTypeId: asFormValue(garment.garmentTypeId),
+      collectionId: asFormValue(nextCollectionId),
+      yearId: asFormValue(garment.yearId),
+      lotId: asFormValue(garment.lotId),
+      rackId: asFormValue(garment.rackId),
+      description: asFormValue(garment.description),
     });
+
+    previousCollectionIdRef.current = asFormValue(nextCollectionId);
+    loadedGarmentIdRef.current = garment.id || "";
 
     // Preferimos photoUrls; si por compatibilidad sólo viene photoUrl, lo convertimos.
     const urls = Array.isArray(garment.photoUrls)
@@ -165,9 +206,43 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
       : garment.photoUrl
         ? [garment.photoUrl]
         : [];
+
     setExistingPhotoUrls(urls.slice(0, 4));
-    setCustomAttributes(garment.customAttributes && typeof garment.customAttributes === "object" ? garment.customAttributes : {});
+    setCustomAttributes(
+      garment.customAttributes && typeof garment.customAttributes === "object"
+        ? garment.customAttributes
+        : {},
+    );
+
+    const timer = window.setTimeout(() => {
+      setIsHydratingForm(false);
+    }, 0);
+
+    return () => window.clearTimeout(timer);
   }, [garment, form]);
+  // Cuando los lots terminan de cargar, aseguramos que el lotId original del garment
+  // siga seleccionado si pertenece a la colección actual y aún no está en el form.
+  useEffect(() => {
+    if (!garment) return;
+    if (!Array.isArray(lotsQuery.data)) return;
+
+    const currentLotId = form.getValues("lotId");
+    if (currentLotId) return;
+
+    const garmentLotId = asFormValue(garment.lotId);
+    if (!garmentLotId) return;
+
+    const existsInOptions = (lotsQuery.data as any[]).some(
+      (lot: any) => String(lot.id) === garmentLotId,
+    );
+
+    if (existsInOptions) {
+      form.setValue("lotId", garmentLotId, {
+        shouldDirty: false,
+        shouldValidate: true,
+      });
+    }
+  }, [garment, lotsQuery.data, form]);
 
   const remainingSlots = 4 - existingPhotoUrls.length - newPhotos.length;
 
@@ -175,13 +250,11 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
     const list = Array.from(files);
     if (list.length === 0) return;
 
-    // UX fast-fail
     if (remainingSlots <= 0) {
       toast({ title: "Max 4 photos", description: "Remove a photo to add a new one." });
       return;
     }
 
-    // Guardrail: never exceed 4 total previews even if triggered rapidly.
     setNewPhotos((prev) => {
       const slots = Math.max(0, 4 - existingPhotoUrls.length - prev.length);
       if (slots <= 0) return prev;
@@ -195,7 +268,10 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
     });
 
     if (list.length > remainingSlots) {
-      toast({ title: "Some photos were skipped", description: "You can only have 4 photos per garment." });
+      toast({
+        title: "Some photos were skipped",
+        description: "You can only have 4 photos per garment.",
+      });
     }
   };
 
@@ -208,12 +284,14 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
 
   const updateMutation = useMutation({
     mutationFn: async (values: FormValues) => {
-      const missingRequired = (customFieldsQuery.data ?? []).find((field) => field.isRequired && !customAttributes[field.key]);
+      const missingRequired = (customFieldsQuery.data ?? []).find(
+        (field) => field.isRequired && !customAttributes[field.key],
+      );
       if (missingRequired) throw new Error(`${missingRequired.label} is required`);
 
       const fd = new FormData();
 
-      // Campos de formulario
+      fd.append("code", (values.code || "").trim());
       fd.append("size", values.size);
       fd.append("color", values.color);
       fd.append("gender", values.gender);
@@ -229,35 +307,45 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
       fd.append("customAttributes", JSON.stringify(customAttributes));
 
       // Lista actual de URLs que queremos conservar.
-      // Nota: en esta opción A NO borramos físicamente del storage (GCS o disco).
       fd.append("photoUrls", JSON.stringify(existingPhotoUrls));
 
-      // Nuevos archivos
       newPhotos.forEach((p) => fd.append("photos", p.file));
 
-      const res = await apiRequest("PATCH", `/api/garments/${id}`, fd);
-      return res;
+      return apiRequest("PATCH", `/api/garments/${id}`, fd);
     },
     onSuccess: () => {
       invalidateGarmentQueries();
       toast({ title: "Saved", description: "Garment updated" });
-      // Luego de guardar, limpiamos los nuevos y recargamos desde server
+
       newPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
       setNewPhotos([]);
       garmentQuery.refetch();
     },
-    onError: (err: any) => {
-      toast({ title: "Update failed", description: err?.message || "Unknown error", variant: "destructive" });
+    onError: async (err: any) => {
+      let description = err?.message || "Unknown error";
+
+      try {
+        if (err?.response) {
+          const data = await err.response.json();
+          if (data?.message) description = data.message;
+        }
+      } catch {
+        // dejamos el mensaje original
+      }
+
+      toast({
+        title: "Update failed",
+        description,
+        variant: "destructive",
+      });
     },
   });
 
   const quickSavePhotosMutation = useMutation({
-    // Persistimos cambios de fotos existentes (remove / clear) inmediatamente
     mutationFn: async (urls: string[]) => {
-      const res = await apiRequest("PATCH", `/api/garments/${id}`, {
+      return apiRequest("PATCH", `/api/garments/${id}`, {
         photoUrls: urls,
       });
-      return res;
     },
     onSuccess: () => {
       invalidateGarmentQueries();
@@ -265,14 +353,17 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
       toast({ title: "Photos updated" });
     },
     onError: (err: any) => {
-      toast({ title: "Photo update failed", description: err?.message || "Unknown error", variant: "destructive" });
+      toast({
+        title: "Photo update failed",
+        description: err?.message || "Unknown error",
+        variant: "destructive",
+      });
     },
   });
 
   const deleteMutation = useMutation({
     mutationFn: async () => {
-      const res = await apiRequest("DELETE", `/api/garments/${id}`);
-      return res;
+      return apiRequest("DELETE", `/api/garments/${id}`);
     },
     onSuccess: () => {
       invalidateGarmentQueries();
@@ -280,7 +371,11 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
       setLocation("/curator");
     },
     onError: (err: any) => {
-      toast({ title: "Delete failed", description: err?.message || "Unknown error", variant: "destructive" });
+      toast({
+        title: "Delete failed",
+        description: err?.message || "Unknown error",
+        variant: "destructive",
+      });
     },
   });
 
@@ -309,7 +404,6 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
       const idx = confirmState.index;
       setNewPhotos((prev) => {
         const next = prev.filter((_, i) => i !== idx);
-        // revoke preview
         const removed = prev[idx];
         if (removed) URL.revokeObjectURL(removed.previewUrl);
         return next;
@@ -317,7 +411,6 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
     }
 
     if (confirmState.kind === "clear-all") {
-      // Limpia URLs existentes (persistente) y fotos nuevas (local)
       setExistingPhotoUrls([]);
       newPhotos.forEach((p) => URL.revokeObjectURL(p.previewUrl));
       setNewPhotos([]);
@@ -331,7 +424,6 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
     setConfirmState({ open: false });
   };
 
-  // Guard UI: ADMIN/USER should not edit via direct URL
   if (isReadOnly) {
     return (
       <div className="p-6">
@@ -344,13 +436,15 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
   if (garmentQuery.isLoading) return <div className="p-6">Loading...</div>;
   if (garmentQuery.error) return <div className="p-6">Failed to load garment</div>;
   if (!garment) return <div className="p-6">Garment not found</div>;
-
+  
   return (
     <div className="p-6 space-y-6">
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-2xl font-semibold">Edit garment</h1>
-          <p className="text-sm text-muted-foreground">Code: <span className="font-mono">{garment.code}</span></p>
+          <p className="text-sm text-muted-foreground">
+            Current code: <span className="font-mono">{garment.code}</span>
+          </p>
         </div>
 
         {canDeleteGarment && (
@@ -369,7 +463,11 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
             <div className="text-sm text-muted-foreground">
               {existingPhotoUrls.length + newPhotos.length} / 4
             </div>
-            <Button variant="outline" onClick={openClearAll} disabled={(existingPhotoUrls.length + newPhotos.length) === 0}>
+            <Button
+              variant="outline"
+              onClick={openClearAll}
+              disabled={existingPhotoUrls.length + newPhotos.length === 0}
+            >
               Clear all
             </Button>
           </div>
@@ -384,7 +482,7 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
                   className="absolute top-2 right-2"
                   onClick={() => {
                     if (p.kind === "existing") {
-                      const existingIdx = idx; // existing URLs are first in combined list
+                      const existingIdx = idx;
                       openRemoveExisting(existingIdx);
                     } else {
                       const newIdx = idx - existingPhotoUrls.length;
@@ -397,7 +495,6 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
               </div>
             ))}
 
-            {/* placeholders para completar grid 2x2 */}
             {Array.from({ length: Math.max(0, 4 - combinedPreviews.length) }).map((_, i) => (
               <div key={`empty-${i}`} className="rounded-md border border-dashed h-40 bg-muted/30" />
             ))}
@@ -447,7 +544,8 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
           />
 
           <p className="text-xs text-muted-foreground">
-            Notes: In QA/local we can store in disk. In production, backend can store in Google Cloud Storage (GCS) when GCS_BUCKET is set.
+            Notes: In QA/local we can store in disk. In production, backend can store in Google Cloud Storage (GCS)
+            when GCS_BUCKET is set.
           </p>
         </CardContent>
       </Card>
@@ -460,6 +558,23 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
           <Form {...form}>
             <form onSubmit={form.handleSubmit((values) => updateMutation.mutate(values))} className="space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <FormField
+                  control={form.control}
+                  name="code"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Garment Code</FormLabel>
+                      <FormControl>
+                        <Input {...field} placeholder="Enter garment code" />
+                      </FormControl>
+                      <p className="text-xs text-muted-foreground">
+                        Changing the code will regenerate the QR linked to this garment.
+                      </p>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
                 <FormField
                   control={form.control}
                   name="size"
@@ -550,7 +665,9 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
                         </FormControl>
                         <SelectContent>
                           {(categoriesQuery.data as any[] | undefined)?.map((c: any) => (
-                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            <SelectItem key={String(c.id)} value={String(c.id)}>
+                              {c.name}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -573,7 +690,9 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
                         </FormControl>
                         <SelectContent>
                           {(garmentTypesQuery.data as any[] | undefined)?.map((t: any) => (
-                            <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                            <SelectItem key={String(t.id)} value={String(t.id)}>
+                              {t.name}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -596,7 +715,9 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
                         </FormControl>
                         <SelectContent>
                           {(collectionsQuery.data as any[] | undefined)?.map((c: any) => (
-                            <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                            <SelectItem key={String(c.id)} value={String(c.id)}>
+                              {c.name}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -605,14 +726,16 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
                   )}
                 />
 
-
                 <FormField
                   control={form.control}
                   name="yearId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Year (optional)</FormLabel>
-                      <Select onValueChange={(v) => field.onChange(v === "__NONE__" ? "" : v)} value={field.value || "__NONE__"}>
+                      <Select
+                        onValueChange={(v) => field.onChange(v === "__NONE__" ? "" : v)}
+                        value={field.value || "__NONE__"}
+                      >
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select year" />
@@ -621,7 +744,9 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
                         <SelectContent>
                           <SelectItem value="__NONE__">No year</SelectItem>
                           {(yearsQuery.data as any[] | undefined)?.map((y: any) => (
-                            <SelectItem key={y.id} value={y.id}>{y.year}</SelectItem>
+                            <SelectItem key={String(y.id)} value={String(y.id)}>
+                              {y.year}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -636,15 +761,23 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Lot</FormLabel>
-                      <Select onValueChange={field.onChange} value={field.value}>
+                      <Select
+                        onValueChange={field.onChange}
+                        value={field.value || ""}
+                        disabled={!collectionId || lotsQuery.isLoading}
+                      >
                         <FormControl>
                           <SelectTrigger>
-                            <SelectValue placeholder="Select lot" />
+                            <SelectValue
+                              placeholder={!collectionId ? "Select collection first" : "Select lot"}
+                            />
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
                           {(lotsQuery.data as any[] | undefined)?.map((l: any) => (
-                            <SelectItem key={l.id} value={l.id}>{l.code} — {l.name}</SelectItem>
+                            <SelectItem key={String(l.id)} value={String(l.id)}>
+                              {l.code} — {l.name}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -659,7 +792,10 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Rack (optional)</FormLabel>
-                      <Select onValueChange={(v) => field.onChange(v === "__NONE__" ? "" : v)} value={field.value || ""}>
+                      <Select
+                        onValueChange={(v) => field.onChange(v === "__NONE__" ? "" : v)}
+                        value={field.value || "__NONE__"}
+                      >
                         <FormControl>
                           <SelectTrigger>
                             <SelectValue placeholder="Select rack" />
@@ -668,7 +804,9 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
                         <SelectContent>
                           <SelectItem value="__NONE__">No rack</SelectItem>
                           {(racksQuery.data as any[] | undefined)?.map((r: any) => (
-                            <SelectItem key={r.id} value={r.id}>{r.code} — {r.name}</SelectItem>
+                            <SelectItem key={String(r.id)} value={String(r.id)}>
+                              {r.code} — {r.name}
+                            </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
@@ -680,9 +818,17 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
 
               {(customFieldsQuery.data ?? []).map((field) => (
                 <FormItem key={field.id}>
-                  <FormLabel>{field.label}{field.isRequired ? " *" : ""}</FormLabel>
+                  <FormLabel>
+                    {field.label}
+                    {field.isRequired ? " *" : ""}
+                  </FormLabel>
                   <Select
-                    onValueChange={(value) => setCustomAttributes((prev) => ({ ...prev, [field.key]: value === "__NONE__" ? "" : value }))}
+                    onValueChange={(value) =>
+                      setCustomAttributes((prev) => ({
+                        ...prev,
+                        [field.key]: value === "__NONE__" ? "" : value,
+                      }))
+                    }
                     value={customAttributes[field.key] || "__NONE__"}
                   >
                     <FormControl>
@@ -693,7 +839,9 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
                     <SelectContent>
                       <SelectItem value="__NONE__">No value</SelectItem>
                       {(field.options ?? []).map((option) => (
-                        <SelectItem key={option.id} value={option.value}>{option.label}</SelectItem>
+                        <SelectItem key={option.id} value={option.value}>
+                          {option.label}
+                        </SelectItem>
                       ))}
                     </SelectContent>
                   </Select>
@@ -715,7 +863,9 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
               />
 
               <div className="flex gap-2">
-                <Button type="button" variant="outline" onClick={() => setLocation("/curator")}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={() => setLocation("/curator")}>
+                  Cancel
+                </Button>
                 <Button type="submit" disabled={updateMutation.isPending}>
                   {updateMutation.isPending ? "Saving..." : "Save changes"}
                 </Button>
@@ -725,7 +875,10 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
         </CardContent>
       </Card>
 
-      <AlertDialog open={confirmState.open} onOpenChange={(open) => setConfirmState(open ? confirmState : { open: false })}>
+      <AlertDialog
+        open={confirmState.open}
+        onOpenChange={(open) => setConfirmState(open ? confirmState : { open: false })}
+      >
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>
@@ -734,14 +887,14 @@ const customFieldsQuery = useQuery<CustomFieldDef[]>({
             <AlertDialogDescription>
               {confirmState.open && confirmState.kind === "delete-garment" && "This action cannot be undone."}
               {confirmState.open && confirmState.kind === "clear-all" && "Remove all photos from this garment?"}
-              {confirmState.open && (confirmState.kind === "remove-existing" || confirmState.kind === "remove-new") && "Remove this photo?"}
+              {confirmState.open &&
+                (confirmState.kind === "remove-existing" || confirmState.kind === "remove-new") &&
+                "Remove this photo?"}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel onClick={() => setConfirmState({ open: false })}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={handleConfirm}>
-              Confirm
-            </AlertDialogAction>
+            <AlertDialogAction onClick={handleConfirm}>Confirm</AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>

@@ -362,6 +362,27 @@ const generateQRCode = async (data: string): Promise<string> => {
   }
 };
 
+const normalizeGarmentCode = (value: unknown): string => {
+  return typeof value === "string" ? value.trim() : "";
+};
+
+const buildGarmentUrl = (req: Request, code: string): string => {
+  const baseUrl = process.env.PUBLIC_BASE_URL || `https://${req.get("host")}`;
+  return `${baseUrl}/garment/${encodeURIComponent(code)}`;
+};
+
+const sendGarmentCodeConflict = (res: Response, code: string) => {
+  return res.status(409).json({
+    message: `Garment code "${code}" already exists`,
+    code: "GARMENT_CODE_ALREADY_EXISTS",
+    field: "code",
+  });
+};
+
+const isUniqueViolation = (error: any): boolean => {
+  return error?.code === "23505";
+};
+
 export async function registerRoutes(app: Express): Promise<Server> {
 
   // Debug/version endpoint (helps validate deployments quickly)
@@ -1493,10 +1514,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
       try {
         if (!requireCurator(req, res)) return;
 
-        const { code: bodyCode, size, color, gender, status, categoryId, garmentTypeId, collectionId, yearId, lotId, rackId, description } =
-          req.body as any;
+        const {
+          code: bodyCode,
+          size,
+          color,
+          gender,
+          status,
+          categoryId,
+          garmentTypeId,
+          collectionId,
+          yearId,
+          lotId,
+          rackId,
+          description,
+        } = req.body as any;
 
-        // photoUrls puede llegar como JSON (string) o array
         // photoUrls puede llegar como JSON (string) o array
         const rawBodyPhotoUrls: any = (req.body as any).photoUrls;
         let photoUrls: string[] = [];
@@ -1530,29 +1562,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
           customAttributes = rawCustomAttributes;
         }
 
-        // Auto-código si no llega uno
-        const code =
-          typeof bodyCode === "string" && bodyCode.trim() ? bodyCode.trim() : await storage.getNextGarmentCode("GAR-MAR-");
+        const requestedCode = normalizeGarmentCode(bodyCode);
 
-        const baseUrl = process.env.PUBLIC_BASE_URL || `https://${req.get("host")}`;
-        const garmentUrl = `${baseUrl}/garment/${encodeURIComponent(code)}`;
+        // Si el usuario envía código manual, validamos duplicado antes de crear
+        if (requestedCode) {
+          const existing = await storage.getGarmentByCode(requestedCode);
+          if (existing) {
+            return sendGarmentCodeConflict(res, requestedCode);
+          }
+        }
+
+        // Si no llega uno, se mantiene el comportamiento actual
+        const code = requestedCode || await storage.getNextGarmentCode("GAR-MAR-");
+
+        const garmentUrl = buildGarmentUrl(req, code);
         const qrUrl = await generateQRCode(garmentUrl);
 
         // Archivos subidos en multipart
         const files = extractUploadedPhotos(req);
         if (files.length) {
           for (const f of files.slice(0, 4)) {
-            if (gcsBucket) {
-              const objectName = gcsBucket
-                ? await uploadToGCS(f)
-                : await saveToUploads(f);
-              photoUrls.push(buildPhotoUrl(objectName));
-            } else {
-              const objectName = gcsBucket
-                ? await uploadToGCS(f)
-                : await saveToUploads(f);
-              photoUrls.push(buildPhotoUrl(objectName));
-            }
+            const objectName = gcsBucket
+              ? await uploadToGCS(f)
+              : await saveToUploads(f);
+            photoUrls.push(buildPhotoUrl(objectName));
           }
         }
 
@@ -1563,16 +1596,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const createdById = req.user!.id;
 
         const parsed = insertGarmentSchema.parse({
-          code: code,
+          code,
           size,
           color,
           gender,
           status,
-          categoryId: categoryId,
-          garmentTypeId: garmentTypeId,
-          collectionId: collectionId,
+          categoryId,
+          garmentTypeId,
+          collectionId,
           yearId: yearId || null,
-          lotId: lotId,
+          lotId,
           rackId: rackId || null,
           description: typeof description === "string" ? description : null,
           customAttributes,
@@ -1582,8 +1615,15 @@ export async function registerRoutes(app: Express): Promise<Server> {
           createdById,
         });
 
-        const garment = await storage.createGarment(parsed);
-        res.status(201).json((await hydrateGarments([garment]))[0]);
+        try {
+          const garment = await storage.createGarment(parsed);
+          return res.status(201).json((await hydrateGarments([garment]))[0]);
+        } catch (error: any) {
+          if (isUniqueViolation(error)) {
+            return sendGarmentCodeConflict(res, code);
+          }
+          throw error;
+        }
       } catch (error) {
         next(error);
       }
@@ -1608,27 +1648,26 @@ export async function registerRoutes(app: Express): Promise<Server> {
         const rawKept: any = updateData.photoUrls;
         let kept: string[] | undefined = undefined;
         if (typeof rawKept === "string") {
-          try { kept = JSON.parse(rawKept); } catch { kept = undefined; }
+          try {
+            kept = JSON.parse(rawKept);
+          } catch {
+            kept = undefined;
+          }
         } else if (Array.isArray(rawKept)) {
           kept = rawKept;
         }
 
-        let finalPhotoUrls: string[] = kept ?? (Array.isArray((current as any).photoUrls) ? (current as any).photoUrls : []);
+        let finalPhotoUrls: string[] =
+          kept ?? (Array.isArray((current as any).photoUrls) ? (current as any).photoUrls : []);
+
         const files = extractUploadedPhotos(req);
 
         if (files.length) {
           for (const f of files.slice(0, 4)) {
-            if (gcsBucket) {
-              const objectName = gcsBucket
-                ? await uploadToGCS(f)
-                : await saveToUploads(f);
-              finalPhotoUrls.push(buildPhotoUrl(objectName));
-            } else {
-              const objectName = gcsBucket
-                ? await uploadToGCS(f)
-                : await saveToUploads(f);
-              finalPhotoUrls.push(buildPhotoUrl(objectName));
-            }
+            const objectName = gcsBucket
+              ? await uploadToGCS(f)
+              : await saveToUploads(f);
+            finalPhotoUrls.push(buildPhotoUrl(objectName));
           }
         }
 
@@ -1638,33 +1677,67 @@ export async function registerRoutes(app: Express): Promise<Server> {
         updateData.photoUrl = finalPhotoUrls[0] || null;
 
         if (typeof updateData.customAttributes === "string") {
-          try { updateData.customAttributes = JSON.parse(updateData.customAttributes) || {}; } catch { updateData.customAttributes = {}; }
-        } else if (updateData.customAttributes && typeof updateData.customAttributes !== "object") {
+          try {
+            updateData.customAttributes = JSON.parse(updateData.customAttributes) || {};
+          } catch {
+            updateData.customAttributes = {};
+          }
+        } else if (
+          Object.prototype.hasOwnProperty.call(updateData, "customAttributes") &&
+          updateData.customAttributes &&
+          typeof updateData.customAttributes !== "object"
+        ) {
           delete updateData.customAttributes;
         }
 
         // Campos que NO deberían actualizarse desde el cliente
         delete updateData.createdById;
         delete updateData.createdAt;
-        delete updateData.qrUrl; // solo se cambia si cambia el code (no soportado aquí)
-        delete updateData.code;  // code se controla en creación (y QR ligado al code)
+
+        const requestedCode = normalizeGarmentCode(updateData.code);
+        const currentCode = normalizeGarmentCode(current.code);
+        const codeChanged = requestedCode && requestedCode !== currentCode;
+
+        if (codeChanged) {
+          const existing = await storage.getGarmentByCode(requestedCode);
+          if (existing && existing.id !== current.id) {
+            return sendGarmentCodeConflict(res, requestedCode);
+          }
+
+          updateData.code = requestedCode;
+          updateData.qrUrl = await generateQRCode(buildGarmentUrl(req, requestedCode));
+        } else {
+          delete updateData.code;
+          delete updateData.qrUrl;
+        }
 
         // Normaliza IDs opcionales
         for (const k of ["rackId", "yearId"]) {
           if (updateData[k] === "") updateData[k] = null;
         }
 
-        if (typeof updateData.description !== "string") delete updateData.description;
+        if (
+          Object.prototype.hasOwnProperty.call(updateData, "description") &&
+          typeof updateData.description !== "string"
+        ) {
+          delete updateData.description;
+        }
 
-        const garment = await storage.updateGarment(req.params.id, updateData);
-        if (!garment) return res.sendStatus(404);
-        res.json((await hydrateGarments([garment]))[0]);
+        try {
+          const garment = await storage.updateGarment(req.params.id, updateData);
+          if (!garment) return res.sendStatus(404);
+          return res.json((await hydrateGarments([garment]))[0]);
+        } catch (error: any) {
+          if (isUniqueViolation(error)) {
+            return sendGarmentCodeConflict(res, requestedCode || currentCode);
+          }
+          throw error;
+        }
       } catch (error) {
         next(error);
       }
     },
   );
-
   app.patch("/api/garments/:id/move", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     requirePermission(req, "update");
     try {

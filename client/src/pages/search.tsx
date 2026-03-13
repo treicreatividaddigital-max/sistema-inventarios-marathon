@@ -1,6 +1,6 @@
-import { useEffect, useMemo, useState } from "react";
-import { useQuery } from "@tanstack/react-query";
-import { Search as SearchIcon, SlidersHorizontal, X } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { Search as SearchIcon, SlidersHorizontal, X, RefreshCcw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -36,14 +36,17 @@ type Rack = { id: string; name: string; code: string };
 
 const PAGE_SIZE = 24;
 const SEARCH_DEBOUNCE_MS = 350;
+const RESUME_REFRESH_THROTTLE_MS = 1500;
 
 export default function SearchPage() {
+  const queryClient = useQueryClient();
   const [searchQuery, setSearchQuery] = useState("");
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [filters, setFilters] = useState<FilterState>({});
   const [isFilterOpen, setIsFilterOpen] = useState(false);
   const [offset, setOffset] = useState(0);
   const [allItems, setAllItems] = useState<any[]>([]);
+  const resumeRefreshRef = useRef(0);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -63,7 +66,14 @@ export default function SearchPage() {
     [debouncedSearchQuery, filters, offset],
   );
 
-  const { data: searchResult, isLoading: garmentsLoading } = useGarmentSearch(searchParams);
+  const {
+    data: searchResult,
+    isLoading: garmentsLoading,
+    isFetching,
+    isError,
+    error,
+    refetch,
+  } = useGarmentSearch(searchParams);
 
   const garments = searchResult?.items ?? [];
   const total = searchResult?.total ?? 0;
@@ -134,10 +144,45 @@ export default function SearchPage() {
     setAllItems([]);
   };
 
+  const refreshSearchView = useCallback(async () => {
+    const now = Date.now();
+    if (now - resumeRefreshRef.current < RESUME_REFRESH_THROTTLE_MS) return;
+    resumeRefreshRef.current = now;
+
+    setOffset(0);
+    setAllItems([]);
+
+    await queryClient.invalidateQueries({
+      predicate: (q) => {
+        const key0 = (q.queryKey as any)?.[0];
+        return typeof key0 === "string" && key0.startsWith("/api/garments");
+      },
+    });
+
+    await refetch();
+  }, [queryClient, refetch]);
+
+  useEffect(() => {
+    const handleResume = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      void refreshSearchView();
+    };
+
+    window.addEventListener("pageshow", handleResume);
+    window.addEventListener("focus", handleResume);
+    document.addEventListener("visibilitychange", handleResume);
+
+    return () => {
+      window.removeEventListener("pageshow", handleResume);
+      window.removeEventListener("focus", handleResume);
+      document.removeEventListener("visibilitychange", handleResume);
+    };
+  }, [refreshSearchView]);
+
   const FilterContent = () => (
     <div className="space-y-6">
       <div>
-        <Label htmlFor="filter-category" className="text-sm font-medium mb-2 block">
+        <Label htmlFor="filter-category" className="mb-2 block text-sm font-medium">
           Category
         </Label>
         <Select
@@ -161,7 +206,7 @@ export default function SearchPage() {
       </div>
 
       <div>
-        <Label htmlFor="filter-type" className="text-sm font-medium mb-2 block">
+        <Label htmlFor="filter-type" className="mb-2 block text-sm font-medium">
           Garment Type
         </Label>
         <Select
@@ -185,7 +230,7 @@ export default function SearchPage() {
       </div>
 
       <div>
-        <Label htmlFor="filter-collection" className="text-sm font-medium mb-2 block">
+        <Label htmlFor="filter-collection" className="mb-2 block text-sm font-medium">
           Collection
         </Label>
         <Select
@@ -209,7 +254,7 @@ export default function SearchPage() {
       </div>
 
       <div>
-        <Label htmlFor="filter-lot" className="text-sm font-medium mb-2 block">
+        <Label htmlFor="filter-lot" className="mb-2 block text-sm font-medium">
           Lot
         </Label>
         <Select
@@ -233,7 +278,7 @@ export default function SearchPage() {
       </div>
 
       <div>
-        <Label htmlFor="filter-rack" className="text-sm font-medium mb-2 block">
+        <Label htmlFor="filter-rack" className="mb-2 block text-sm font-medium">
           Rack
         </Label>
         <Select
@@ -259,7 +304,7 @@ export default function SearchPage() {
       <Separator />
 
       <div>
-        <Label htmlFor="filter-size" className="text-sm font-medium mb-2 block">
+        <Label htmlFor="filter-size" className="mb-2 block text-sm font-medium">
           Size
         </Label>
         <Select
@@ -283,7 +328,7 @@ export default function SearchPage() {
       </div>
 
       <div>
-        <Label htmlFor="filter-color" className="text-sm font-medium mb-2 block">
+        <Label htmlFor="filter-color" className="mb-2 block text-sm font-medium">
           Color
         </Label>
         <Input
@@ -298,13 +343,16 @@ export default function SearchPage() {
       </div>
 
       <div>
-        <Label htmlFor="filter-gender" className="text-sm font-medium mb-2 block">
+        <Label htmlFor="filter-gender" className="mb-2 block text-sm font-medium">
           Gender
         </Label>
         <Select
           value={filters.gender}
           onValueChange={(value) =>
-            setFilters((prev) => ({ ...prev, gender: value === "all" ? undefined : value as FilterState["gender"] }))
+            setFilters((prev) => ({
+              ...prev,
+              gender: value === "all" ? undefined : (value as FilterState["gender"]),
+            }))
           }
         >
           <SelectTrigger id="filter-gender" data-testid="select-gender">
@@ -320,7 +368,7 @@ export default function SearchPage() {
       </div>
 
       <div>
-        <Label htmlFor="filter-status" className="text-sm font-medium mb-2 block">
+        <Label htmlFor="filter-status" className="mb-2 block text-sm font-medium">
           Status
         </Label>
         <Select
@@ -358,7 +406,7 @@ export default function SearchPage() {
     <div className="space-y-6">
       <div>
         <h1 className="text-3xl font-semibold">Search Inventory</h1>
-        <p className="text-muted-foreground mt-2">Find garments using filters and search</p>
+        <p className="mt-2 text-muted-foreground">Find garments using filters and search</p>
       </div>
 
       <div className="flex flex-col gap-4 md:flex-row md:items-center">
@@ -366,35 +414,47 @@ export default function SearchPage() {
           <SearchIcon className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             placeholder="Search by code, color, or description..."
-            className="pl-10 h-12"
+            className="h-12 pl-10"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             data-testid="input-search"
           />
         </div>
 
-        <Sheet open={isFilterOpen} onOpenChange={setIsFilterOpen}>
-          <SheetTrigger asChild>
-            <Button variant="outline" className="md:w-auto" data-testid="button-open-filters">
-              <SlidersHorizontal className="h-4 w-4 mr-2" />
-              Filters
-              {activeFiltersCount > 0 && (
-                <Badge className="ml-2" variant="secondary">
-                  {activeFiltersCount}
-                </Badge>
-              )}
-            </Button>
-          </SheetTrigger>
-          <SheetContent side="left" className="w-80">
-            <SheetHeader>
-              <SheetTitle>Filters</SheetTitle>
-              <SheetDescription>Narrow down your search with filters</SheetDescription>
-            </SheetHeader>
-            <ScrollArea className="h-[calc(100vh-8rem)] mt-6">
-              <FilterContent />
-            </ScrollArea>
-          </SheetContent>
-        </Sheet>
+        <div className="flex gap-2 md:w-auto">
+          <Button
+            variant="outline"
+            className="md:w-auto"
+            onClick={() => void refreshSearchView()}
+            data-testid="button-refresh-search"
+          >
+            <RefreshCcw className={`mr-2 h-4 w-4 ${isFetching ? "animate-spin" : ""}`} />
+            Refresh
+          </Button>
+
+          <Sheet open={isFilterOpen} onOpenChange={setIsFilterOpen}>
+            <SheetTrigger asChild>
+              <Button variant="outline" className="md:w-auto" data-testid="button-open-filters">
+                <SlidersHorizontal className="mr-2 h-4 w-4" />
+                Filters
+                {activeFiltersCount > 0 && (
+                  <Badge className="ml-2" variant="secondary">
+                    {activeFiltersCount}
+                  </Badge>
+                )}
+              </Button>
+            </SheetTrigger>
+            <SheetContent side="left" className="w-80">
+              <SheetHeader>
+                <SheetTitle>Filters</SheetTitle>
+                <SheetDescription>Narrow down your search with filters</SheetDescription>
+              </SheetHeader>
+              <ScrollArea className="mt-6 h-[calc(100vh-8rem)]">
+                <FilterContent />
+              </ScrollArea>
+            </SheetContent>
+          </Sheet>
+        </div>
       </div>
 
       {(activeFiltersCount > 0 || searchQuery) && (
@@ -404,7 +464,7 @@ export default function SearchPage() {
               Search: {searchQuery}
               <button
                 onClick={() => setSearchQuery("")}
-                className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5"
+                className="ml-1 rounded-full p-0.5 hover:bg-secondary-foreground/10"
               >
                 <X className="h-3 w-3" />
               </button>
@@ -413,7 +473,7 @@ export default function SearchPage() {
           {filters.categoryId && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-category">
               Category: {categories.find((c) => c.id === filters.categoryId)?.name}
-              <button onClick={() => clearFilter("categoryId")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
+              <button onClick={() => clearFilter("categoryId")} className="ml-1 rounded-full p-0.5 hover:bg-secondary-foreground/10">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -421,7 +481,7 @@ export default function SearchPage() {
           {filters.garmentTypeId && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-garmentType">
               Type: {types.find((t) => t.id === filters.garmentTypeId)?.name}
-              <button onClick={() => clearFilter("garmentTypeId")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
+              <button onClick={() => clearFilter("garmentTypeId")} className="ml-1 rounded-full p-0.5 hover:bg-secondary-foreground/10">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -429,7 +489,7 @@ export default function SearchPage() {
           {filters.collectionId && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-collection">
               Collection: {collections.find((c) => c.id === filters.collectionId)?.name}
-              <button onClick={() => clearFilter("collectionId")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
+              <button onClick={() => clearFilter("collectionId")} className="ml-1 rounded-full p-0.5 hover:bg-secondary-foreground/10">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -437,7 +497,15 @@ export default function SearchPage() {
           {filters.lotId && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-lot">
               Lot: {lots.find((l) => l.id === filters.lotId)?.name}
-              <button onClick={() => clearFilter("lotId")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
+              <button onClick={() => clearFilter("lotId")} className="ml-1 rounded-full p-0.5 hover:bg-secondary-foreground/10">
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          )}
+          {filters.rackId && (
+            <Badge variant="secondary" className="gap-1" data-testid="badge-filter-rack">
+              Rack: {racks.find((r) => r.id === filters.rackId)?.name}
+              <button onClick={() => clearFilter("rackId")} className="ml-1 rounded-full p-0.5 hover:bg-secondary-foreground/10">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -445,7 +513,7 @@ export default function SearchPage() {
           {filters.size && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-size">
               Size: {filters.size}
-              <button onClick={() => clearFilter("size")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
+              <button onClick={() => clearFilter("size")} className="ml-1 rounded-full p-0.5 hover:bg-secondary-foreground/10">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -453,7 +521,7 @@ export default function SearchPage() {
           {filters.color && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-color">
               Color: {filters.color}
-              <button onClick={() => clearFilter("color")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
+              <button onClick={() => clearFilter("color")} className="ml-1 rounded-full p-0.5 hover:bg-secondary-foreground/10">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -461,7 +529,7 @@ export default function SearchPage() {
           {filters.gender && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-gender">
               Gender: {filters.gender}
-              <button onClick={() => clearFilter("gender")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
+              <button onClick={() => clearFilter("gender")} className="ml-1 rounded-full p-0.5 hover:bg-secondary-foreground/10">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -469,7 +537,7 @@ export default function SearchPage() {
           {filters.status && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-status">
               Status: {filters.status.replace(/_/g, " ")}
-              <button onClick={() => clearFilter("status")} className="ml-1 hover:bg-secondary-foreground/10 rounded-full p-0.5">
+              <button onClick={() => clearFilter("status")} className="ml-1 rounded-full p-0.5 hover:bg-secondary-foreground/10">
                 <X className="h-3 w-3" />
               </button>
             </Badge>
@@ -478,25 +546,41 @@ export default function SearchPage() {
       )}
 
       <div>
-        <p className="text-sm text-muted-foreground mb-4" data-testid="text-results-count">
-          {garmentsLoading
+        <p className="mb-4 text-sm text-muted-foreground" data-testid="text-results-count">
+          {garmentsLoading && offset === 0
             ? "Loading..."
             : total > allItems.length
               ? `Showing ${allItems.length} of ${total} results`
               : `${total} result${total !== 1 ? "s" : ""} found`}
         </p>
 
-        {garmentsLoading && offset === 0 ? (
+        {isError ? (
+          <Card>
+            <CardContent className="flex flex-col items-center justify-center gap-4 py-16 text-center">
+              <SearchIcon className="h-14 w-14 text-muted-foreground" />
+              <div className="space-y-1">
+                <p className="text-lg font-medium">Search needs a quick refresh</p>
+                <p className="text-sm text-muted-foreground">
+                  {String((error as Error)?.message || "The search view could not be refreshed.")}
+                </p>
+              </div>
+              <Button onClick={() => void refreshSearchView()}>
+                <RefreshCcw className="mr-2 h-4 w-4" />
+                Reload search
+              </Button>
+            </CardContent>
+          </Card>
+        ) : garmentsLoading && offset === 0 ? (
           <div className="flex items-center justify-center py-16">
             <div className="text-lg text-muted-foreground">Loading garments...</div>
           </div>
         ) : total === 0 ? (
-          <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
             <Card className="col-span-full">
               <CardContent className="flex flex-col items-center justify-center py-16">
-                <SearchIcon className="h-16 w-16 text-muted-foreground mb-4" />
+                <SearchIcon className="mb-4 h-16 w-16 text-muted-foreground" />
                 <p className="text-lg text-muted-foreground">No garments found</p>
-                <p className="text-sm text-muted-foreground mt-2">
+                <p className="mt-2 text-sm text-muted-foreground">
                   Try adjusting your filters or search query
                 </p>
               </CardContent>
@@ -504,7 +588,7 @@ export default function SearchPage() {
           </div>
         ) : (
           <div className="space-y-6">
-            <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
               {allItems.map((garment) => (
                 <GarmentCard key={garment.id} garment={garment} />
               ))}

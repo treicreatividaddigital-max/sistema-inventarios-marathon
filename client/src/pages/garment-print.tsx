@@ -190,20 +190,22 @@ export default function GarmentPrintPage() {
           }
         }
       `}</style>
-      <div className="space-y-6" style={cssVars}>
-        <div className="flex items-center gap-4">
+      <div className="space-y-6 overflow-x-hidden" style={cssVars}>
+        <div className="flex items-start gap-3 sm:items-center sm:gap-4">
           <Link href={garmentCode ? `/garment/${encodeURIComponent(garmentCode)}` : "/search"}>
             <Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button>
           </Link>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-3xl font-semibold">Print Garment Label</h1>
-            <p className="text-muted-foreground mt-2">Etiqueta térmica individual usando el mismo motor que la impresión masiva.</p>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-semibold sm:text-3xl">Print Garment Label</h1>
+            <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+              Etiqueta térmica individual usando el mismo motor que la impresión masiva.
+            </p>
             <ThermalPrintSupportNote />
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-          <Card>
+        <div className="grid items-start gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+          <Card className="order-2 min-w-0 xl:order-1">
             <CardHeader>
               <CardTitle>Configuración de impresión</CardTitle>
               <CardDescription>El preview responde en tiempo real a tamaño, offsets, QR y encabezado.</CardDescription>
@@ -222,7 +224,7 @@ export default function GarmentPrintPage() {
                       setPrinterName(value);
                     }}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger className="min-w-0">
                       <SelectValue placeholder="Selecciona impresora" />
                     </SelectTrigger>
                     <SelectContent>
@@ -261,7 +263,7 @@ export default function GarmentPrintPage() {
                 </Select>
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid gap-3 sm:grid-cols-2">
                 <div className="space-y-2">
                   <PrintSettingLabel help="Ancho total de la etiqueta. Tu rollo validado actual es 40 mm.">Ancho (mm)</PrintSettingLabel>
                   <Input type="number" value={settings.widthMm} onChange={(e) => setSettings((prev) => ({ ...prev, widthMm: Number(e.target.value) || prev.widthMm }))} />
@@ -320,7 +322,7 @@ export default function GarmentPrintPage() {
                 </Select>
               </div>
 
-              <div className="flex items-center justify-between rounded-md border p-3 gap-3">
+              <div className="flex items-center justify-between gap-3 rounded-md border p-3">
                 <div className="min-w-0">
                   <p className="font-medium">Mostrar título</p>
                   <p className="text-xs text-muted-foreground">Encabezado superior.</p>
@@ -328,7 +330,7 @@ export default function GarmentPrintPage() {
                 <Switch checked={settings.showTitle} onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, showTitle: checked }))} />
               </div>
 
-              <div className="flex items-center justify-between rounded-md border p-3 gap-3">
+              <div className="flex items-center justify-between gap-3 rounded-md border p-3">
                 <div className="min-w-0">
                   <p className="font-medium">Incluir QR</p>
                   <p className="text-xs text-muted-foreground">El preview y la impresión responden al instante.</p>
@@ -346,13 +348,13 @@ export default function GarmentPrintPage() {
             </CardContent>
           </Card>
 
-          <Card>
+          <Card className="order-1 min-w-0 xl:order-2">
             <CardHeader>
               <CardTitle>Preview en tiempo real</CardTitle>
               <CardDescription>Lo que ves aquí usa el mismo layout lógico del motor térmico.</CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              <div id="browser-label-preview" className="flex min-h-[320px] overflow-auto items-center justify-center rounded-lg border bg-muted/30 p-6">
+              <div id="browser-label-preview" className="flex min-h-[280px] items-center justify-center overflow-auto rounded-lg border bg-muted/30 p-4 sm:min-h-[320px] sm:p-6">
                 <ThermalLabelPreview
                   title={settings.title}
                   code={garment?.code || garmentCode || "GAR-000"}
@@ -360,10 +362,10 @@ export default function GarmentPrintPage() {
                   settings={settings}
                 />
               </div>
-              <div className="grid gap-4 md:grid-cols-2">
+              <div className="grid gap-4 sm:grid-cols-2">
                 <div className="rounded-md border p-3">
                   <p className="text-sm font-medium">Código</p>
-                  <p className="mt-1 font-mono text-sm text-muted-foreground">{garment?.code || garmentCode || "-"}</p>
+                  <p className="mt-1 break-all font-mono text-sm text-muted-foreground">{garment?.code || garmentCode || "-"}</p>
                 </div>
                 <div className="rounded-md border p-3">
                   <p className="text-sm font-medium">Payload QR</p>

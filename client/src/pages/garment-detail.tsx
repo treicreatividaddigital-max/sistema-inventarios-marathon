@@ -1,4 +1,3 @@
-// client/src/pages/garment-detail.tsx
 import { useRoute, Link } from "wouter";
 import { useEffect, useMemo, useState } from "react";
 import {
@@ -119,6 +118,9 @@ export default function GarmentDetailPage() {
   });
 
   const photoUrls = useMemo(() => normalizePhotoUrls(garment), [garment]);
+  const noteText = garment?.description?.trim() || "";
+  const customAttributes = garment?.customAttributes ?? {};
+  const customAttributesEntries = Object.entries(customAttributes);
 
   const [photoIndex, setPhotoIndex] = useState(0);
   const [photoDialogOpen, setPhotoDialogOpen] = useState(false);
@@ -135,7 +137,7 @@ export default function GarmentDetailPage() {
 
   if (!garmentCode) {
     return (
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <Card>
           <CardHeader>
             <CardTitle>Garment not found</CardTitle>
@@ -144,7 +146,7 @@ export default function GarmentDetailPage() {
           <CardContent>
             <Link href="/search">
               <Button variant="outline">
-                <ArrowLeft className="w-4 h-4 mr-2" />
+                <ArrowLeft className="mr-2 h-4 w-4" />
                 Back
               </Button>
             </Link>
@@ -156,8 +158,8 @@ export default function GarmentDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="p-6 space-y-4">
-        <div className="flex items-center justify-between">
+      <div className="space-y-4 p-4 sm:p-6">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <Skeleton className="h-8 w-64" />
           <Skeleton className="h-10 w-28" />
         </div>
@@ -172,7 +174,7 @@ export default function GarmentDetailPage() {
 
   if (error || !garment) {
     return (
-      <div className="p-6">
+      <div className="p-4 sm:p-6">
         <Card>
           <CardHeader>
             <CardTitle>Failed to load garment</CardTitle>
@@ -183,7 +185,7 @@ export default function GarmentDetailPage() {
           <CardContent>
             <Link href="/search">
               <Button variant="outline">
-                <ArrowLeft className="w-4 h-4 mr-2" />
+                <ArrowLeft className="mr-2 h-4 w-4" />
                 Back
               </Button>
             </Link>
@@ -194,39 +196,37 @@ export default function GarmentDetailPage() {
   }
 
   return (
-    <div className="p-6 space-y-6">
-      <div className="flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
+    <div className="space-y-6 overflow-x-hidden p-4 sm:p-6">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
           <Link href="/search">
-            <Button variant="outline" size="icon" aria-label="Back">
-              <ArrowLeft className="w-4 h-4" />
+            <Button variant="outline" size="icon" aria-label="Back" className="shrink-0">
+              <ArrowLeft className="h-4 w-4" />
             </Button>
           </Link>
 
-          <div>
-            <h1 className="text-2xl font-semibold flex items-center gap-2">
-              <Package className="w-5 h-5" />
-              <span data-testid="text-code" className="font-mono">
+          <div className="min-w-0">
+            <h1 className="flex min-w-0 items-center gap-2 text-xl font-semibold sm:text-2xl">
+              <Package className="h-5 w-5 shrink-0" />
+              <span data-testid="text-code" className="min-w-0 break-all font-mono">
                 {garment.code}
               </span>
             </h1>
 
-            <div className="flex items-center gap-2 mt-1">
+            <div className="mt-1 flex flex-wrap items-center gap-2">
               <Badge variant={statusVariant(garment.status) as any}>
                 {statusLabel(garment.status)}
               </Badge>
-              <span className="text-sm text-muted-foreground">
+              <span className="break-words text-sm text-muted-foreground">
                 {garment.gender} • {garment.size} • {garment.color}
               </span>
             </div>
           </div>
         </div>
-
-        {/* Removed duplicate Print button (kept the one near the QR) */}
       </div>
 
       <div className="grid gap-6 lg:grid-cols-2">
-        <Card>
+        <Card className="min-w-0 overflow-hidden">
           <CardHeader>
             <CardTitle>Photos</CardTitle>
             <CardDescription>
@@ -235,7 +235,7 @@ export default function GarmentDetailPage() {
           </CardHeader>
 
           <CardContent className="space-y-4">
-            <div className="relative rounded-lg overflow-hidden border bg-muted">
+            <div className="relative overflow-hidden rounded-lg border bg-muted">
               {currentPhoto ? (
                 <button
                   type="button"
@@ -246,11 +246,11 @@ export default function GarmentDetailPage() {
                   <img
                     src={currentPhoto}
                     alt="Garment"
-                    className="w-full h-[360px] object-cover"
+                    className="h-[320px] w-full object-cover sm:h-[360px]"
                   />
                 </button>
               ) : (
-                <div className="w-full h-[360px] flex items-center justify-center text-sm text-muted-foreground">
+                <div className="flex h-[320px] w-full items-center justify-center text-sm text-muted-foreground sm:h-[360px]">
                   No photos
                 </div>
               )}
@@ -266,7 +266,7 @@ export default function GarmentDetailPage() {
                     disabled={photoIndex === 0}
                     aria-label="Previous photo"
                   >
-                    <ChevronLeft className="w-4 h-4" />
+                    <ChevronLeft className="h-4 w-4" />
                   </Button>
 
                   <Button
@@ -278,7 +278,7 @@ export default function GarmentDetailPage() {
                     disabled={photoIndex === photoUrls.length - 1}
                     aria-label="Next photo"
                   >
-                    <ChevronRight className="w-4 h-4" />
+                    <ChevronRight className="h-4 w-4" />
                   </Button>
                 </>
               )}
@@ -290,14 +290,14 @@ export default function GarmentDetailPage() {
                   <button
                     key={url}
                     type="button"
-                    className={`rounded-md overflow-hidden border ${i === photoIndex ? "ring-2 ring-primary" : ""}`}
+                    className={`overflow-hidden rounded-md border ${i === photoIndex ? "ring-2 ring-primary" : ""}`}
                     onClick={() => setPhotoIndex(i)}
                     aria-label={`Photo ${i + 1}`}
                   >
                     <img
                       src={url}
                       alt={`Photo ${i + 1}`}
-                      className="w-full h-16 object-cover"
+                      className="h-16 w-full object-cover"
                     />
                   </button>
                 ))}
@@ -306,111 +306,100 @@ export default function GarmentDetailPage() {
           </CardContent>
         </Card>
 
-        <Card>
+        <Card className="min-w-0 overflow-hidden">
           <CardHeader>
             <CardTitle>Details</CardTitle>
             <CardDescription>Metadata and location</CardDescription>
           </CardHeader>
 
           <CardContent className="grid gap-6 sm:grid-cols-2">
-            <div>
-              <p className="text-sm font-medium text-muted-foreground mb-1">Category</p>
-              <p className="text-base" data-testid="text-category">
-                {garment?.category?.name ?? "—"}
+            <div className="min-w-0">
+              <p className="mb-1 text-sm font-medium text-muted-foreground">Category</p>
+              <p className="break-words text-base" data-testid="text-category">
+                {garment.category?.name ?? "—"}
+              </p>
+            </div>
+
+            <div className="min-w-0">
+              <p className="mb-1 text-sm font-medium text-muted-foreground">Type</p>
+              <p className="break-words text-base" data-testid="text-type">
+                {garment.garmentType?.name ?? "—"}
+              </p>
+            </div>
+
+            <div className="min-w-0">
+              <p className="mb-1 text-sm font-medium text-muted-foreground">Collection</p>
+              <p className="break-words text-base" data-testid="text-collection">
+                {garment.collection?.name ?? "—"}
+              </p>
+            </div>
+
+            <div className="min-w-0">
+              <p className="mb-1 text-sm font-medium text-muted-foreground">Lot</p>
+              <p className="break-words font-mono text-base" data-testid="text-lot">
+                {garment.lot ? `${garment.lot.code} — ${garment.lot.name}` : "—"}
               </p>
             </div>
 
             <div>
-              <p className="text-sm font-medium text-muted-foreground mb-1">Type</p>
-              <p className="text-base" data-testid="text-type">
-                {garment?.garmentType?.name ?? "—"}
-              </p>
-            </div>
-
-            {garment?.description && garment.description.trim().length > 0 && (
-              <div className="sm:col-span-2">
-                <p className="text-sm font-medium text-muted-foreground mb-1">Note</p>
-                <p className="text-base whitespace-pre-wrap break-words" data-testid="text-note">
-                  {garment.description}
-                </p>
-              </div>
-            )}
-
-            <div>
-              <p className="text-sm font-medium text-muted-foreground mb-1">Collection</p>
-              <p className="text-base" data-testid="text-collection">
-                {garment?.collection?.name ?? "—"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-sm font-medium text-muted-foreground mb-1">Lot</p>
-              <p className="text-base font-mono" data-testid="text-lot">
-                {garment?.lot ? `${garment.lot.code} — ${garment.lot.name}` : "—"}
-              </p>
-            </div>
-
-            <div>
-              <p className="text-sm font-medium text-muted-foreground mb-1">Gender</p>
+              <p className="mb-1 text-sm font-medium text-muted-foreground">Gender</p>
               <p className="text-base" data-testid="text-gender">
                 {garment.gender}
               </p>
             </div>
 
             <div>
-              <p className="text-sm font-medium text-muted-foreground mb-1">Size</p>
+              <p className="mb-1 text-sm font-medium text-muted-foreground">Size</p>
               <p className="text-base" data-testid="text-size">
                 {garment.size}
               </p>
             </div>
 
-            <div>
-              <p className="text-sm font-medium text-muted-foreground mb-1">Color</p>
-              <p className="text-base" data-testid="text-color">
+            <div className="min-w-0">
+              <p className="mb-1 text-sm font-medium text-muted-foreground">Color</p>
+              <p className="break-words text-base" data-testid="text-color">
                 {garment.color}
               </p>
             </div>
 
             <div>
-              <p className="text-sm font-medium text-muted-foreground mb-1">Status</p>
+              <p className="mb-1 text-sm font-medium text-muted-foreground">Status</p>
               <p className="text-base" data-testid="text-status">
                 {statusLabel(garment.status)}
               </p>
             </div>
-            
-            {(garment.year || garment.description || (garment.customAttributes && Object.keys(garment.customAttributes).length > 0)) && (
-              <div className="sm:col-span-2 space-y-4">
+
+            {(garment.year || noteText || customAttributesEntries.length > 0) && (
+              <div className="space-y-4 sm:col-span-2">
                 {garment.year && (
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-1">Year</p>
+                    <p className="mb-1 text-sm font-medium text-muted-foreground">Year</p>
                     <div className="rounded-md border p-3 text-sm font-medium">
                       {garment.year.label || garment.year.year}
                     </div>
                   </div>
                 )}
 
-                {garment.description && (
+                {noteText && (
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-1">Notes</p>
-                    <div className="rounded-md border p-3 text-sm whitespace-pre-wrap">
-                      {garment.description}
+                    <p className="mb-1 text-sm font-medium text-muted-foreground">Note</p>
+                    <div className="rounded-md border p-3 text-sm whitespace-pre-wrap break-words" data-testid="text-note">
+                      {noteText}
                     </div>
                   </div>
                 )}
 
-                {garment.customAttributes && Object.keys(garment.customAttributes).length > 0 && (
+                {customAttributesEntries.length > 0 && (
                   <div>
-                    <p className="text-sm font-medium text-muted-foreground mb-1">
-                      Custom attributes
-                    </p>
+                    <p className="mb-1 text-sm font-medium text-muted-foreground">Custom attributes</p>
 
-                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                      {Object.entries(garment.customAttributes).map(([key, value]) => (
-                        <div key={key} className="rounded-md border p-3">
+                    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {customAttributesEntries.map(([key, value]) => (
+                        <div key={key} className="rounded-md border p-3 min-w-0">
                           <p className="text-xs uppercase tracking-wide text-muted-foreground">
                             {key.replace(/_/g, " ")}
                           </p>
-                          <p className="text-sm font-medium mt-1">
+                          <p className="mt-1 break-words text-sm font-medium">
                             {String(value || "—")}
                           </p>
                         </div>
@@ -420,24 +409,24 @@ export default function GarmentDetailPage() {
                 )}
               </div>
             )}
-            
+
             <Separator className="sm:col-span-2" />
 
-            <div className="sm:col-span-2 flex items-start justify-between gap-3">
-              <div>
-                <p className="text-sm font-medium text-muted-foreground mb-1">Garment QR</p>
+            <div className="flex flex-col gap-4 sm:col-span-2 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0 flex-1">
+                <p className="mb-1 text-sm font-medium text-muted-foreground">Garment QR</p>
 
-                <div className="flex items-center gap-2">
-                  <QrCodeIcon className="w-4 h-4 text-muted-foreground" />
-                  <p className="text-sm text-muted-foreground">
+                <div className="flex min-w-0 items-start gap-2">
+                  <QrCodeIcon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                  <p className="min-w-0 break-all text-sm text-muted-foreground">
                     {garmentQr?.garmentUrl || garment.garmentUrl || "—"}
                   </p>
                 </div>
               </div>
 
               <Link href={`/garment/${encodeURIComponent(garment.code)}/print`}>
-                <Button variant="outline" size="sm" data-testid="button-print-garment-small">
-                  <Printer className="w-4 h-4 mr-2" />
+                <Button variant="outline" size="sm" data-testid="button-print-garment-small" className="w-full sm:w-auto">
+                  <Printer className="mr-2 h-4 w-4" />
                   Print Label
                 </Button>
               </Link>
@@ -445,15 +434,15 @@ export default function GarmentDetailPage() {
 
             <div className="sm:col-span-2">
               {garment.qrUrl ? (
-                <div className="rounded-lg border bg-muted p-4 flex items-center justify-center">
+                <div className="flex items-center justify-center rounded-lg border bg-muted p-4">
                   <img
                     src={garmentQr?.qrUrl || garment.qrUrl}
                     alt="Garment QR"
-                    className="max-h-[220px]"
+                    className="max-h-[220px] max-w-full"
                   />
                 </div>
               ) : (
-                <div className="rounded-lg border bg-muted p-4 text-sm text-muted-foreground flex items-center justify-center">
+                <div className="flex items-center justify-center rounded-lg border bg-muted p-4 text-sm text-muted-foreground">
                   No QR available
                 </div>
               )}
@@ -462,29 +451,29 @@ export default function GarmentDetailPage() {
         </Card>
       </div>
 
-      <Card>
+      <Card className="min-w-0 overflow-hidden">
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <MapPin className="w-4 h-4" />
+            <MapPin className="h-4 w-4" />
             Rack
           </CardTitle>
           <CardDescription>Where to find this garment</CardDescription>
         </CardHeader>
 
-        <CardContent className="flex items-center justify-between gap-3">
+        <CardContent className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           {garment.rack ? (
-            <div className="flex items-center gap-3">
-              <div>
-                <p className="font-medium font-mono" data-testid="text-rack-code">
+            <div className="flex min-w-0 flex-1 flex-col gap-3 sm:flex-row sm:items-center">
+              <div className="min-w-0">
+                <p className="break-all font-mono font-medium" data-testid="text-rack-code">
                   {garment.rack.code}
                 </p>
-                <p className="text-sm text-muted-foreground">
-                  {garment?.rack ? `${garment.rack.name} • ${garment.rack.zone}` : "—"}
+                <p className="break-words text-sm text-muted-foreground">
+                  {`${garment.rack.name} • ${garment.rack.zone}`}
                 </p>
               </div>
 
               <Link href={`/rack/${garment.rack.code}`}>
-                <Button variant="outline" size="sm" data-testid="button-view-rack">
+                <Button variant="outline" size="sm" data-testid="button-view-rack" className="w-full sm:w-auto">
                   View Rack
                 </Button>
               </Link>
@@ -494,22 +483,12 @@ export default function GarmentDetailPage() {
           )}
 
           {garment.rack?.qrUrl ? (
-            <div className="flex items-center gap-2">
-              <Link href={`/rack/${encodeURIComponent(garment.rack.code)}/print`}>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={() => {
-                    const code = garment.rack?.code;
-                    if (!code) return;
-                    window.location.href = `/rack/${encodeURIComponent(code)}/print`;
-                  }}
-                >
-                  <Printer className="w-4 h-4 mr-2" />
-                  Print Rack Label
-                </Button>
-              </Link>
-            </div>
+            <Link href={`/rack/${encodeURIComponent(garment.rack.code)}/print`}>
+              <Button variant="outline" size="sm" className="w-full sm:w-auto">
+                <Printer className="mr-2 h-4 w-4" />
+                Print Rack Label
+              </Button>
+            </Link>
           ) : null}
         </CardContent>
       </Card>
@@ -518,25 +497,74 @@ export default function GarmentDetailPage() {
         <DialogContent className="max-w-4xl">
           <DialogHeader>
             <DialogTitle className="flex items-center justify-between gap-3">
-              <span>Photo</span>
+              <span>
+                {garment.code} — photo {photoIndex + 1} of {photoUrls.length}
+              </span>
               <Button
                 variant="ghost"
                 size="icon"
                 onClick={() => setPhotoDialogOpen(false)}
-                aria-label="Close"
+                aria-label="Close photo"
               >
-                <X className="w-4 h-4" />
+                <X className="h-4 w-4" />
               </Button>
             </DialogTitle>
           </DialogHeader>
 
-          {currentPhoto ? (
-            <div className="rounded-lg overflow-hidden border bg-muted">
-              <img src={currentPhoto} alt="Garment" className="w-full max-h-[70vh] object-contain" />
+          <div className="space-y-4">
+            <div className="relative overflow-hidden rounded-lg border bg-muted">
+              {currentPhoto ? (
+                <img src={currentPhoto} alt="Garment enlarged" className="max-h-[75vh] w-full object-contain" />
+              ) : (
+                <div className="flex h-[50vh] items-center justify-center text-sm text-muted-foreground">
+                  No photo
+                </div>
+              )}
+
+              {hasPhotos && photoUrls.length > 1 && (
+                <>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    className="absolute left-3 top-1/2 -translate-y-1/2"
+                    onClick={goPrev}
+                    disabled={photoIndex === 0}
+                    aria-label="Previous photo"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="secondary"
+                    className="absolute right-3 top-1/2 -translate-y-1/2"
+                    onClick={goNext}
+                    disabled={photoIndex === photoUrls.length - 1}
+                    aria-label="Next photo"
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </>
+              )}
             </div>
-          ) : (
-            <div className="text-sm text-muted-foreground">No photo</div>
-          )}
+
+            {hasPhotos && photoUrls.length > 1 && (
+              <div className="grid grid-cols-4 gap-2">
+                {photoUrls.map((url, i) => (
+                  <button
+                    key={`${url}-dialog`}
+                    type="button"
+                    className={`overflow-hidden rounded-md border ${i === photoIndex ? "ring-2 ring-primary" : ""}`}
+                    onClick={() => setPhotoIndex(i)}
+                    aria-label={`Photo ${i + 1}`}
+                  >
+                    <img src={url} alt={`Photo ${i + 1}`} className="h-16 w-full object-cover" />
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
         </DialogContent>
       </Dialog>
     </div>

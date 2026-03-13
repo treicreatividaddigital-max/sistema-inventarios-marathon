@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, Printer, QrCode, RefreshCcw } from "lucide-react";
+import { ArrowLeft, Printer, QrCode, RefreshCcw, FilterX } from "lucide-react";
 import { Link } from "wouter";
 import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
@@ -34,6 +34,8 @@ type Garment = {
   color: string;
   status: string;
   qrUrl: string | null;
+  rackId?: string | null;
+  rack?: { id: string; code: string; name: string } | null;
   category?: { name: string };
   garmentType?: { name: string };
 };
@@ -46,10 +48,27 @@ type Rack = {
   qrUrl: string | null;
 };
 
+type GarmentSearchResponse = {
+  items: Garment[];
+  total: number;
+  limit: number;
+  offset: number;
+  hasMore: boolean;
+};
+
+const GARMENT_BATCH_LIMIT = 250;
+
 function readStoredSettings() {
   if (typeof window === "undefined") {
-    return { printerName: "", language: "tspl" as ThermalLanguage, qrMode: "code" as QrPayloadMode, presetKey: "40x25", settings: { ...DEFAULT_THERMAL_LABEL_SETTINGS } };
+    return {
+      printerName: "",
+      language: "tspl" as ThermalLanguage,
+      qrMode: "code" as QrPayloadMode,
+      presetKey: "40x25",
+      settings: { ...DEFAULT_THERMAL_LABEL_SETTINGS },
+    };
   }
+
   try {
     const parsed = JSON.parse(localStorage.getItem(THERMAL_PRINT_STORAGE_KEY) || "{}");
     return {
@@ -60,13 +79,30 @@ function readStoredSettings() {
       settings: { ...DEFAULT_THERMAL_LABEL_SETTINGS, ...(parsed.settings || {}) },
     };
   } catch {
-    return { printerName: "", language: "tspl" as ThermalLanguage, qrMode: "code" as QrPayloadMode, presetKey: "40x25", settings: { ...DEFAULT_THERMAL_LABEL_SETTINGS } };
+    return {
+      printerName: "",
+      language: "tspl" as ThermalLanguage,
+      qrMode: "code" as QrPayloadMode,
+      presetKey: "40x25",
+      settings: { ...DEFAULT_THERMAL_LABEL_SETTINGS },
+    };
   }
+}
+
+function buildGarmentsQueryUrl(searchTerm: string, rackId: string) {
+  const params = new URLSearchParams();
+  if (searchTerm.trim()) params.set("q", searchTerm.trim());
+  if (rackId && rackId !== "all") params.set("rackId", rackId);
+  params.set("limit", String(GARMENT_BATCH_LIMIT));
+  params.set("offset", "0");
+  return `/api/garments/search?${params.toString()}`;
 }
 
 export default function CuratorPrintQRsPage() {
   const [selectedGarments, setSelectedGarments] = useState<string[]>([]);
   const [selectedRacks, setSelectedRacks] = useState<string[]>([]);
+  const [garmentSearch, setGarmentSearch] = useState("");
+  const [selectedRackFilter, setSelectedRackFilter] = useState<string>("all");
   const stored = useMemo(() => readStoredSettings(), []);
   const [printerName, setPrinterName] = useState<string>(stored.printerName);
   const [availablePrinters, setAvailablePrinters] = useState<string[]>([]);
@@ -78,12 +114,33 @@ export default function CuratorPrintQRsPage() {
   const [isDetectingPrinter, setIsDetectingPrinter] = useState(false);
   const { toast } = useToast();
 
-  const { data: garments = [], isLoading: garmentsLoading } = useQuery<Garment[]>({ queryKey: ["/api/garments"] });
-  const { data: racks = [], isLoading: racksLoading } = useQuery<Rack[]>({ queryKey: ["/api/racks"] });
+  const { data: racks = [], isLoading: racksLoading } = useQuery<Rack[]>({
+    queryKey: ["/api/racks"],
+  });
+
+  const garmentsQueryUrl = useMemo(
+    () => buildGarmentsQueryUrl(garmentSearch, selectedRackFilter),
+    [garmentSearch, selectedRackFilter],
+  );
+
+  const {
+    data: garmentsSearch,
+    isLoading: garmentsLoading,
+    isFetching: garmentsFetching,
+    refetch: refetchGarments,
+  } = useQuery<GarmentSearchResponse>({
+    queryKey: [garmentsQueryUrl],
+  });
+
+  const garments = garmentsSearch?.items ?? [];
+  const selectedRackMeta = racks.find((rack) => rack.id === selectedRackFilter);
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    localStorage.setItem(THERMAL_PRINT_STORAGE_KEY, JSON.stringify({ printerName, language, qrMode, presetKey, settings }));
+    localStorage.setItem(
+      THERMAL_PRINT_STORAGE_KEY,
+      JSON.stringify({ printerName, language, qrMode, presetKey, settings }),
+    );
   }, [printerName, language, qrMode, presetKey, settings]);
 
   useEffect(() => {
@@ -96,10 +153,12 @@ export default function CuratorPrintQRsPage() {
         setPrinterName((current) => {
           const currentTrimmed = current.trim();
           if (!currentTrimmed) return resolved.selectedPrinter;
-          return resolved.installedPrinters.includes(currentTrimmed) ? currentTrimmed : resolved.selectedPrinter;
+          return resolved.installedPrinters.includes(currentTrimmed)
+            ? currentTrimmed
+            : resolved.selectedPrinter;
         });
       } catch {
-        // allow manual input
+        // manual input remains available
       }
     })();
     return () => {
@@ -107,14 +166,31 @@ export default function CuratorPrintQRsPage() {
     };
   }, [stored.printerName]);
 
-  const handleBrowserPrint = () => window.print();
-  const toggleGarment = (id: string) => setSelectedGarments((prev) => prev.includes(id) ? prev.filter((g) => g !== id) : [...prev, id]);
-  const toggleRack = (id: string) => setSelectedRacks((prev) => prev.includes(id) ? prev.filter((r) => r !== id) : [...prev, id]);
-  const selectAllGarments = () => setSelectedGarments(garments.map((g) => g.id));
-  const selectAllRacks = () => setSelectedRacks(racks.map((r) => r.id));
+  useEffect(() => {
+    setSelectedGarments((prev) => prev.filter((id) => garments.some((garment) => garment.id === id)));
+  }, [garments]);
 
-  const selectedGarmentData = garments.filter((g) => selectedGarments.includes(g.id));
-  const selectedRackData = racks.filter((r) => selectedRacks.includes(r.id));
+  const handleBrowserPrint = () => window.print();
+
+  const toggleGarment = (id: string) => {
+    setSelectedGarments((prev) =>
+      prev.includes(id) ? prev.filter((garmentId) => garmentId !== id) : [...prev, id],
+    );
+  };
+
+  const toggleRack = (id: string) => {
+    setSelectedRacks((prev) =>
+      prev.includes(id) ? prev.filter((rackId) => rackId !== id) : [...prev, id],
+    );
+  };
+
+  const selectAllVisibleGarments = () => setSelectedGarments(garments.map((garment) => garment.id));
+  const clearVisibleGarments = () => setSelectedGarments([]);
+  const selectAllRacks = () => setSelectedRacks(racks.map((rack) => rack.id));
+  const clearAllRacks = () => setSelectedRacks([]);
+
+  const selectedGarmentData = garments.filter((garment) => selectedGarments.includes(garment.id));
+  const selectedRackData = racks.filter((rack) => selectedRacks.includes(rack.id));
 
   const selectedLabels = useMemo<ThermalLabelInput[]>(() => {
     const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
@@ -122,12 +198,22 @@ export default function CuratorPrintQRsPage() {
       ...selectedGarmentData.map((garment) => ({
         code: garment.code,
         title: settings.title,
-        qrValue: buildQrValue({ baseUrl, code: garment.code, mode: qrMode, entityPath: "garment" }),
+        qrValue: buildQrValue({
+          baseUrl,
+          code: garment.code,
+          mode: qrMode,
+          entityPath: "garment",
+        }),
       })),
       ...selectedRackData.map((rack) => ({
         code: rack.code,
         title: settings.title,
-        qrValue: buildQrValue({ baseUrl, code: rack.code, mode: qrMode, entityPath: "rack" }),
+        qrValue: buildQrValue({
+          baseUrl,
+          code: rack.code,
+          mode: qrMode,
+          entityPath: "rack",
+        }),
       })),
     ];
   }, [selectedGarmentData, selectedRackData, settings.title, qrMode]);
@@ -146,7 +232,13 @@ export default function CuratorPrintQRsPage() {
   const applyPreset = (key: string) => {
     setPresetKey(key);
     const preset = THERMAL_LABEL_PRESETS.find((item) => item.key === key);
-    if (preset) setSettings((prev) => ({ ...prev, ...preset.settings, title: prev.title || preset.settings.title }));
+    if (preset) {
+      setSettings((prev) => ({
+        ...prev,
+        ...preset.settings,
+        title: prev.title || preset.settings.title,
+      }));
+    }
   };
 
   const handleDetectPrinter = async () => {
@@ -157,10 +249,17 @@ export default function CuratorPrintQRsPage() {
       setPrinterName(resolved.selectedPrinter);
       toast({
         title: "Impresora detectada",
-        description: resolved.defaultPrinter || resolved.selectedPrinter || "No se detectó una impresora por defecto.",
+        description:
+          resolved.defaultPrinter ||
+          resolved.selectedPrinter ||
+          "No se detectó una impresora por defecto.",
       });
     } catch (error) {
-      toast({ title: "No se pudo detectar la impresora", description: describeQzError(error), variant: "destructive" });
+      toast({
+        title: "No se pudo detectar la impresora",
+        description: describeQzError(error),
+        variant: "destructive",
+      });
     } finally {
       setIsDetectingPrinter(false);
     }
@@ -177,9 +276,16 @@ export default function CuratorPrintQRsPage() {
         settings,
         jobName: `Archive batch ${selectedLabels.length}`,
       });
-      toast({ title: "Etiquetas enviadas", description: `${selectedLabels.length} etiqueta(s) enviadas a ${printerName || "la impresora"}` });
+      toast({
+        title: "Etiquetas enviadas",
+        description: `${selectedLabels.length} etiqueta(s) enviadas a ${printerName || "la impresora"}`,
+      });
     } catch (error) {
-      toast({ title: "No se pudo imprimir", description: describeQzError(error), variant: "destructive" });
+      toast({
+        title: "No se pudo imprimir",
+        description: describeQzError(error),
+        variant: "destructive",
+      });
     } finally {
       setIsPrintingThermal(false);
     }
@@ -204,25 +310,273 @@ export default function CuratorPrintQRsPage() {
         }
       `}</style>
 
-      <div className="space-y-6 no-print">
-        <div className="flex items-center gap-4">
-          <Link href="/curator"><Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button></Link>
-          <div className="flex-1 min-w-0">
-            <h1 className="text-3xl font-semibold">Print QR Codes</h1>
-            <p className="text-muted-foreground mt-2">Masivo: navegador o térmica usando el mismo motor que las pantallas individuales.</p>
+      <div className="no-print space-y-6 overflow-x-hidden">
+        <div className="flex items-start gap-3 sm:items-center sm:gap-4">
+          <Link href="/curator">
+            <Button variant="ghost" size="icon">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          </Link>
+          <div className="min-w-0 flex-1">
+            <h1 className="text-2xl font-semibold sm:text-3xl">Print QR Codes</h1>
+            <p className="mt-2 text-sm text-muted-foreground sm:text-base">
+              Masivo: navegador o térmica usando el mismo motor que las pantallas individuales.
+            </p>
             <ThermalPrintSupportNote />
           </div>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-          <Card>
+        <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+          <div className="min-w-0 space-y-6">
+            <Tabs defaultValue="garments" className="min-w-0">
+              <TabsList className="grid w-full grid-cols-2">
+                <TabsTrigger value="garments" className="min-w-0">
+                  <span className="truncate">Garments ({garmentsSearch?.total ?? garments.length})</span>
+                </TabsTrigger>
+                <TabsTrigger value="racks" className="min-w-0">
+                  <span className="truncate">Racks ({racks.length})</span>
+                </TabsTrigger>
+              </TabsList>
+
+              <TabsContent value="garments" className="space-y-4">
+                <Card className="min-w-0">
+                  <CardHeader>
+                    <CardTitle>Filter garments</CardTitle>
+                    <CardDescription>
+                      Busca por código o filtra por rack para imprimir solo lo que está dentro de un rack específico.
+                    </CardDescription>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_220px_auto]">
+                      <Input
+                        placeholder="Search garment code, color or description"
+                        value={garmentSearch}
+                        onChange={(e) => setGarmentSearch(e.target.value)}
+                      />
+                      <Select value={selectedRackFilter} onValueChange={setSelectedRackFilter}>
+                        <SelectTrigger className="min-w-0">
+                          <SelectValue placeholder="Filter by rack" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="all">All racks</SelectItem>
+                          {racks.map((rack) => (
+                            <SelectItem key={rack.id} value={rack.id}>
+                              {rack.code} · {rack.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                      <Button
+                        variant="outline"
+                        onClick={() => {
+                          setGarmentSearch("");
+                          setSelectedRackFilter("all");
+                        }}
+                      >
+                        <FilterX className="mr-2 h-4 w-4" />
+                        Clear
+                      </Button>
+                    </div>
+
+                    <div className="flex flex-wrap gap-2">
+                      {selectedRackMeta ? (
+                        <Badge variant="secondary">
+                          Rack filter: {selectedRackMeta.code} · {selectedRackMeta.name}
+                        </Badge>
+                      ) : (
+                        <Badge variant="outline">Showing garments from all racks</Badge>
+                      )}
+                      {!!garmentSearch.trim() && (
+                        <Badge variant="secondary">Search: {garmentSearch.trim()}</Badge>
+                      )}
+                      <Badge variant="outline">Visible garments: {garmentsSearch?.total ?? garments.length}</Badge>
+                      <Badge variant="outline">Selected: {selectedGarments.length}</Badge>
+                    </div>
+                  </CardContent>
+                </Card>
+
+                {garmentsLoading ? (
+                  <Card>
+                    <CardContent className="flex items-center justify-center py-16">
+                      <p className="text-lg text-muted-foreground">Loading garments...</p>
+                    </CardContent>
+                  </Card>
+                ) : garments.length === 0 ? (
+                  <Card>
+                    <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                      <QrCode className="mb-4 h-16 w-16 text-muted-foreground" />
+                      <p className="text-lg text-muted-foreground">No garments available</p>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        Adjust the search or rack filter and try again.
+                      </p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card className="min-w-0">
+                    <CardHeader>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <CardTitle>Select Garments</CardTitle>
+                          <CardDescription>
+                            {selectedRackMeta
+                              ? `Printing garments assigned to ${selectedRackMeta.code}.`
+                              : "Choose garments to print."}
+                          </CardDescription>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" size="sm" onClick={() => void refetchGarments()}>
+                            <RefreshCcw className={`mr-2 h-4 w-4 ${garmentsFetching ? "animate-spin" : ""}`} />
+                            Refresh
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={clearVisibleGarments}>
+                            Clear selected
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={selectAllVisibleGarments}>
+                            Select visible
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="max-h-[28rem] space-y-3 overflow-y-auto">
+                        {garments.map((garment) => (
+                          <div
+                            key={garment.id}
+                            className="cursor-pointer rounded-lg border p-3 transition-colors hover:bg-muted/40"
+                            onClick={() => toggleGarment(garment.id)}
+                          >
+                            <div className="flex items-start gap-3 sm:gap-4">
+                              <Checkbox
+                                checked={selectedGarments.includes(garment.id)}
+                                onCheckedChange={() => toggleGarment(garment.id)}
+                              />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <p className="truncate font-mono text-sm font-medium">{garment.code}</p>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    <Badge variant="outline" className="text-xs">{garment.size}</Badge>
+                                    <Badge variant="outline" className="text-xs">{garment.color}</Badge>
+                                    {garment.rack?.code && (
+                                      <Badge variant="secondary" className="text-xs">{garment.rack.code}</Badge>
+                                    )}
+                                  </div>
+                                </div>
+                                <div className="mt-1 flex flex-wrap gap-2 text-xs text-muted-foreground">
+                                  {garment.category?.name && <span>{garment.category.name}</span>}
+                                  {garment.garmentType?.name && <span>• {garment.garmentType.name}</span>}
+                                  {garment.rack?.name && <span>• {garment.rack.name}</span>}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+
+              <TabsContent value="racks" className="space-y-4">
+                {racksLoading ? (
+                  <Card>
+                    <CardContent className="flex items-center justify-center py-16">
+                      <p className="text-lg text-muted-foreground">Loading racks...</p>
+                    </CardContent>
+                  </Card>
+                ) : racks.length === 0 ? (
+                  <Card>
+                    <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+                      <QrCode className="mb-4 h-16 w-16 text-muted-foreground" />
+                      <p className="text-lg text-muted-foreground">No racks available</p>
+                    </CardContent>
+                  </Card>
+                ) : (
+                  <Card className="min-w-0">
+                    <CardHeader>
+                      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="min-w-0">
+                          <CardTitle>Select Racks</CardTitle>
+                          <CardDescription>Choose racks to print.</CardDescription>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Button variant="outline" size="sm" onClick={clearAllRacks}>
+                            Clear selected
+                          </Button>
+                          <Button variant="outline" size="sm" onClick={selectAllRacks}>
+                            Select all
+                          </Button>
+                        </div>
+                      </div>
+                    </CardHeader>
+                    <CardContent>
+                      <div className="max-h-[28rem] space-y-3 overflow-y-auto">
+                        {racks.map((rack) => (
+                          <div
+                            key={rack.id}
+                            className="cursor-pointer rounded-lg border p-3 transition-colors hover:bg-muted/40"
+                            onClick={() => toggleRack(rack.id)}
+                          >
+                            <div className="flex items-start gap-3 sm:gap-4">
+                              <Checkbox checked={selectedRacks.includes(rack.id)} onCheckedChange={() => toggleRack(rack.id)} />
+                              <div className="min-w-0 flex-1">
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                  <p className="truncate font-mono text-sm font-medium">{rack.code}</p>
+                                  <Badge variant="outline" className="w-fit text-xs">{rack.zone}</Badge>
+                                </div>
+                                <div className="mt-1 text-xs text-muted-foreground">{rack.name}</div>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </CardContent>
+                  </Card>
+                )}
+              </TabsContent>
+            </Tabs>
+
+            <Card className="min-w-0">
+              <CardHeader>
+                <CardTitle>Preview en tiempo real</CardTitle>
+                <CardDescription>
+                  Vista previa fiel al layout lógico aplicado a la primera etiqueta seleccionada.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="flex min-h-[240px] items-center justify-center overflow-auto rounded-lg border bg-muted/30 p-4 sm:p-6">
+                  <ThermalLabelPreview
+                    title={settings.title}
+                    code={previewLabel.code}
+                    qrValue={previewLabel.qrValue || previewLabel.code}
+                    settings={settings}
+                  />
+                </div>
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="rounded-md border p-3">
+                    <p className="text-sm font-medium">Primera etiqueta</p>
+                    <p className="mt-1 break-all font-mono text-sm text-muted-foreground">{previewLabel.code}</p>
+                  </div>
+                  <div className="rounded-md border p-3">
+                    <p className="text-sm font-medium">Payload QR</p>
+                    <p className="mt-1 break-all text-sm text-muted-foreground">{previewLabel.qrValue || "-"}</p>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
+          </div>
+
+          <Card className="min-w-0 xl:sticky xl:top-6">
             <CardHeader>
               <CardTitle>Thermal batch print</CardTitle>
-              <CardDescription>Una sola configuración compartida para todo el sitio.</CardDescription>
+              <CardDescription>
+                En mobile esta configuración queda al final para seguir un flujo más natural: primero eliges qué imprimir y luego cómo imprimirlo.
+              </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <PrintSettingLabel help="Selecciona una impresora detectada por QZ Tray o escribe una variante cercana del nombre. El motor resolverá coincidencias simples automáticamente.">Impresora</PrintSettingLabel>
+                <PrintSettingLabel help="Selecciona una impresora detectada por QZ Tray o escribe una variante cercana del nombre. El motor resolverá coincidencias simples automáticamente.">
+                  Impresora
+                </PrintSettingLabel>
                 <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <Select
                     value={availablePrinters.includes(printerName) ? printerName : "__manual__"}
@@ -234,154 +588,225 @@ export default function CuratorPrintQRsPage() {
                       setPrinterName(value);
                     }}
                   >
-                    <SelectTrigger><SelectValue placeholder="Selecciona impresora" /></SelectTrigger>
+                    <SelectTrigger className="min-w-0">
+                      <SelectValue placeholder="Selecciona impresora" />
+                    </SelectTrigger>
                     <SelectContent>
-                      {availablePrinters.map((printer) => <SelectItem key={printer} value={printer}>{printer}</SelectItem>)}
+                      {availablePrinters.map((printer) => (
+                        <SelectItem key={printer} value={printer}>
+                          {printer}
+                        </SelectItem>
+                      ))}
                       <SelectItem value="__manual__">Escribir manualmente</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button variant="outline" size="icon" onClick={handleDetectPrinter} disabled={isDetectingPrinter}><RefreshCcw className={`h-4 w-4 ${isDetectingPrinter ? "animate-spin" : ""}`} /></Button>
+                  <Button variant="outline" onClick={handleDetectPrinter} disabled={isDetectingPrinter}>
+                    <RefreshCcw className={`mr-2 h-4 w-4 ${isDetectingPrinter ? "animate-spin" : ""}`} />
+                    Detectar
+                  </Button>
                 </div>
-                <Input value={printerName} onChange={(e) => setPrinterName(e.target.value)} placeholder="Avicar_THERM" />
+                {!availablePrinters.includes(printerName) && (
+                  <Input
+                    placeholder="Nombre manual de impresora"
+                    value={printerName}
+                    onChange={(e) => setPrinterName(e.target.value)}
+                  />
+                )}
               </div>
 
-              <div className="space-y-2"><PrintSettingLabel help="TSPL es la opción recomendada para esta impresora. Usa ZPL solo si tu hardware lo soporta y ya lo validaste.">Lenguaje térmico</PrintSettingLabel><Select value={language} onValueChange={(value) => setLanguage(value as ThermalLanguage)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="tspl">TSPL</SelectItem><SelectItem value="zpl">ZPL</SelectItem></SelectContent></Select></div>
-              <div className="space-y-2"><PrintSettingLabel help="Presets rápidos para tamaños comunes. Custom mantiene tus valores manuales.">Preset de etiqueta</PrintSettingLabel><Select value={presetKey} onValueChange={applyPreset}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{THERMAL_LABEL_PRESETS.map((preset) => <SelectItem key={preset.key} value={preset.key}>{preset.label}</SelectItem>)}<SelectItem value="custom">Custom</SelectItem></SelectContent></Select></div>
-              <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2"><PrintSettingLabel help="Ancho total de la etiqueta. Tu rollo validado actual es 40 mm.">Ancho (mm)</PrintSettingLabel><Input type="number" value={settings.widthMm} onChange={(e) => setSettings((prev) => ({ ...prev, widthMm: Number(e.target.value) || prev.widthMm }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Alto total de la etiqueta. Tu rollo validado actual es 25 mm.">Alto (mm)</PrintSettingLabel><Input type="number" value={settings.heightMm} onChange={(e) => setSettings((prev) => ({ ...prev, heightMm: Number(e.target.value) || prev.heightMm }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Distancia entre etiquetas. Si salta una etiqueta, este valor suele ser el primero que debes revisar.">Gap (mm)</PrintSettingLabel><Input type="number" value={settings.gapMm} onChange={(e) => setSettings((prev) => ({ ...prev, gapMm: Number(e.target.value) || 0 }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Tamaño objetivo del QR. Si no cabe, el motor lo reduce automáticamente para evitar montajes.">QR (mm)</PrintSettingLabel><Input type="number" value={settings.qrSizeMm} onChange={(e) => setSettings((prev) => ({ ...prev, qrSizeMm: Number(e.target.value) || prev.qrSizeMm }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Desplaza todo el contenido horizontalmente en dots para microajustes finos de impresora.">Offset X (dots)</PrintSettingLabel><Input type="number" value={settings.offsetX} onChange={(e) => setSettings((prev) => ({ ...prev, offsetX: Number(e.target.value) || 0 }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Desplaza todo el contenido verticalmente en dots. Útil para alinear mejor con el gap real del papel.">Offset Y (dots)</PrintSettingLabel><Input type="number" value={settings.offsetY} onChange={(e) => setSettings((prev) => ({ ...prev, offsetY: Number(e.target.value) || 0 }))} /></div>
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-1">
                 <div className="space-y-2">
-                  <PrintSettingLabel help="Mueve solo los textos horizontalmente, sin afectar el QR.">Offset texto X (dots)</PrintSettingLabel>
-                  <Input type="number" value={settings.textOffsetX} onChange={(e) => setSettings((prev) => ({ ...prev, textOffsetX: Number(e.target.value) || 0 }))} />
+                  <PrintSettingLabel help="TSPL suele ser la mejor opción para etiquetas térmicas compactas.">
+                    Lenguaje
+                  </PrintSettingLabel>
+                  <Select value={language} onValueChange={(value) => setLanguage(value as ThermalLanguage)}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="tspl">TSPL</SelectItem>
+                      <SelectItem value="zpl">ZPL</SelectItem>
+                    </SelectContent>
+                  </Select>
                 </div>
+
                 <div className="space-y-2">
-                  <PrintSettingLabel help="Mueve solo los textos verticalmente, sin afectar el QR.">Offset texto Y (dots)</PrintSettingLabel>
-                  <Input type="number" value={settings.textOffsetY} onChange={(e) => setSettings((prev) => ({ ...prev, textOffsetY: Number(e.target.value) || 0 }))} />
-                </div>
-                <div className="space-y-2">
-                  <PrintSettingLabel help="Mueve solo el QR horizontalmente, sin afectar los textos.">Offset QR X (dots)</PrintSettingLabel>
-                  <Input type="number" value={settings.qrOffsetX} onChange={(e) => setSettings((prev) => ({ ...prev, qrOffsetX: Number(e.target.value) || 0 }))} />
-                </div>
-                <div className="space-y-2">
-                  <PrintSettingLabel help="Mueve solo el QR verticalmente, sin afectar los textos.">Offset QR Y (dots)</PrintSettingLabel>
-                  <Input type="number" value={settings.qrOffsetY} onChange={(e) => setSettings((prev) => ({ ...prev, qrOffsetY: Number(e.target.value) || 0 }))} />
+                  <PrintSettingLabel help="Aplica proporciones listas para 40x25 o 50x30 sin recalibrar a mano desde cero.">
+                    Preset
+                  </PrintSettingLabel>
+                  <Select value={presetKey} onValueChange={applyPreset}>
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {THERMAL_LABEL_PRESETS.map((preset) => (
+                        <SelectItem key={preset.key} value={preset.key}>
+                          {preset.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
               </div>
-              <div className="space-y-2"><PrintSettingLabel help="Texto superior opcional. Cuando está activo, el motor recalcula el espacio para no montar el QR sobre el título.">Título</PrintSettingLabel><Input value={settings.title} onChange={(e) => setSettings((prev) => ({ ...prev, title: e.target.value }))} /></div>
-              <div className="space-y-2"><PrintSettingLabel help="El QR puede contener solo el código o la URL completa del item.">Contenido del QR</PrintSettingLabel><Select value={qrMode} onValueChange={(value) => setQrMode(value as QrPayloadMode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="code">Solo código</SelectItem><SelectItem value="url">URL</SelectItem></SelectContent></Select></div>
-              <div className="flex items-center justify-between rounded-md border p-3"><div><p className="font-medium">Mostrar título</p><p className="text-xs text-muted-foreground">Encabezado superior.</p></div><Switch checked={settings.showTitle} onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, showTitle: checked }))} /></div>
-              <div className="flex items-center justify-between rounded-md border p-3"><div><p className="font-medium">Incluir QR</p><p className="text-xs text-muted-foreground">Déjalo apagado si necesitas máxima compatibilidad.</p></div><Switch checked={settings.includeQr} onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, includeQr: checked }))} /></div>
+
+              <div className="grid gap-4 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <PrintSettingLabel help="Mueve todo el texto horizontalmente sin alterar el tamaño de la etiqueta.">
+                    Offset texto X (dots)
+                  </PrintSettingLabel>
+                  <Input
+                    type="number"
+                    value={settings.textOffsetX}
+                    onChange={(e) =>
+                      setSettings((prev) => ({ ...prev, textOffsetX: Number(e.target.value) || 0 }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <PrintSettingLabel help="Mueve todo el texto verticalmente sin afectar el QR.">
+                    Offset texto Y (dots)
+                  </PrintSettingLabel>
+                  <Input
+                    type="number"
+                    value={settings.textOffsetY}
+                    onChange={(e) =>
+                      setSettings((prev) => ({ ...prev, textOffsetY: Number(e.target.value) || 0 }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <PrintSettingLabel help="Mueve solo el QR horizontalmente, sin afectar los textos.">
+                    Offset QR X (dots)
+                  </PrintSettingLabel>
+                  <Input
+                    type="number"
+                    value={settings.qrOffsetX}
+                    onChange={(e) =>
+                      setSettings((prev) => ({ ...prev, qrOffsetX: Number(e.target.value) || 0 }))
+                    }
+                  />
+                </div>
+                <div className="space-y-2">
+                  <PrintSettingLabel help="Mueve solo el QR verticalmente, sin afectar los textos.">
+                    Offset QR Y (dots)
+                  </PrintSettingLabel>
+                  <Input
+                    type="number"
+                    value={settings.qrOffsetY}
+                    onChange={(e) =>
+                      setSettings((prev) => ({ ...prev, qrOffsetY: Number(e.target.value) || 0 }))
+                    }
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <PrintSettingLabel help="Texto superior opcional. Cuando está activo, el motor recalcula el espacio para no montar el QR sobre el título.">
+                  Título
+                </PrintSettingLabel>
+                <Input
+                  value={settings.title}
+                  onChange={(e) => setSettings((prev) => ({ ...prev, title: e.target.value }))}
+                />
+              </div>
+
+              <div className="space-y-2">
+                <PrintSettingLabel help="El QR puede contener solo el código o la URL completa del item.">
+                  Contenido del QR
+                </PrintSettingLabel>
+                <Select value={qrMode} onValueChange={(value) => setQrMode(value as QrPayloadMode)}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="code">Solo código</SelectItem>
+                    <SelectItem value="url">URL</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                <div className="min-w-0">
+                  <p className="font-medium">Mostrar título</p>
+                  <p className="text-xs text-muted-foreground">Encabezado superior.</p>
+                </div>
+                <Switch
+                  checked={settings.showTitle}
+                  onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, showTitle: checked }))}
+                />
+              </div>
+
+              <div className="flex items-center justify-between gap-3 rounded-md border p-3">
+                <div className="min-w-0">
+                  <p className="font-medium">Incluir QR</p>
+                  <p className="text-xs text-muted-foreground">
+                    Déjalo apagado si necesitas máxima compatibilidad.
+                  </p>
+                </div>
+                <Switch
+                  checked={settings.includeQr}
+                  onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, includeQr: checked }))}
+                />
+              </div>
+
+              <div className="rounded-md border bg-muted/20 p-3 text-sm">
+                <div className="flex flex-wrap gap-2">
+                  <Badge variant="outline">Etiquetas: {selectedLabels.length}</Badge>
+                  <Badge variant="outline">Garments: {selectedGarmentData.length}</Badge>
+                  <Badge variant="outline">Racks: {selectedRackData.length}</Badge>
+                </div>
+              </div>
+
               <div className="flex flex-col gap-2">
-                <Button onClick={handleThermalPrint} disabled={!selectedLabels.length || !printerName.trim() || isPrintingThermal}><Printer className="mr-2 h-4 w-4" />{isPrintingThermal ? "Enviando..." : `Imprimir térmica (${selectedLabels.length})`}</Button>
-                <Button variant="outline" onClick={handleBrowserPrint}>Imprimir navegador</Button>
+                <Button
+                  onClick={handleThermalPrint}
+                  disabled={!selectedLabels.length || !printerName.trim() || isPrintingThermal}
+                >
+                  <Printer className="mr-2 h-4 w-4" />
+                  {isPrintingThermal ? "Enviando..." : `Imprimir térmica (${selectedLabels.length})`}
+                </Button>
+                <Button variant="outline" onClick={handleBrowserPrint}>
+                  Imprimir navegador
+                </Button>
               </div>
             </CardContent>
           </Card>
-
-          <div className="space-y-6">
-            <Card>
-              <CardHeader>
-                <CardTitle>Preview en tiempo real</CardTitle>
-                <CardDescription>Vista previa fiel al layout lógico aplicado a la primera etiqueta seleccionada.</CardDescription>
-              </CardHeader>
-              <CardContent className="space-y-4">
-                <div className="flex min-h-[240px] overflow-auto items-center justify-center rounded-lg border bg-muted/30 p-6">
-                  <ThermalLabelPreview title={settings.title} code={previewLabel.code} qrValue={previewLabel.qrValue || previewLabel.code} settings={settings} />
-                </div>
-                <div className="grid gap-4 md:grid-cols-2">
-                  <div className="rounded-md border p-3"><p className="text-sm font-medium">Primera etiqueta</p><p className="mt-1 font-mono text-sm text-muted-foreground">{previewLabel.code}</p></div>
-                  <div className="rounded-md border p-3"><p className="text-sm font-medium">Payload QR</p><p className="mt-1 break-all text-sm text-muted-foreground">{previewLabel.qrValue || "-"}</p></div>
-                </div>
-              </CardContent>
-            </Card>
-
-            <Tabs defaultValue="garments">
-              <TabsList className="grid w-full max-w-md grid-cols-2">
-                <TabsTrigger value="garments">Garments ({garments.length})</TabsTrigger>
-                <TabsTrigger value="racks">Racks ({racks.length})</TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="garments" className="space-y-4">
-                {garmentsLoading ? (
-                  <Card><CardContent className="flex items-center justify-center py-16"><p className="text-lg text-muted-foreground">Loading garments...</p></CardContent></Card>
-                ) : garments.length === 0 ? (
-                  <Card><CardContent className="flex flex-col items-center justify-center py-16"><QrCode className="h-16 w-16 text-muted-foreground mb-4" /><p className="text-lg text-muted-foreground">No garments available</p></CardContent></Card>
-                ) : (
-                  <Card>
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <div><CardTitle>Select Garments</CardTitle><CardDescription>Choose garments to print.</CardDescription></div>
-                        <Button variant="outline" size="sm" onClick={selectAllGarments}>Select All</Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3 max-h-96 overflow-y-auto">
-                        {garments.map((garment) => (
-                          <div key={garment.id} className="flex items-center gap-4 rounded-lg border p-3 cursor-pointer" onClick={() => toggleGarment(garment.id)}>
-                            <Checkbox checked={selectedGarments.includes(garment.id)} onCheckedChange={() => toggleGarment(garment.id)} />
-                            <div className="flex-1 min-w-0"><p className="font-mono text-sm font-medium truncate">{garment.code}</p><div className="flex gap-2 mt-1">{garment.category && <span className="text-xs text-muted-foreground">{garment.category.name}</span>}{garment.garmentType && <span className="text-xs text-muted-foreground">• {garment.garmentType.name}</span>}</div></div>
-                            <div className="flex gap-1.5"><Badge variant="outline" className="text-xs">{garment.size}</Badge><Badge variant="outline" className="text-xs">{garment.color}</Badge></div>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </TabsContent>
-
-              <TabsContent value="racks" className="space-y-4">
-                {racksLoading ? (
-                  <Card><CardContent className="flex items-center justify-center py-16"><p className="text-lg text-muted-foreground">Loading racks...</p></CardContent></Card>
-                ) : racks.length === 0 ? (
-                  <Card><CardContent className="flex flex-col items-center justify-center py-16"><QrCode className="h-16 w-16 text-muted-foreground mb-4" /><p className="text-lg text-muted-foreground">No racks available</p></CardContent></Card>
-                ) : (
-                  <Card>
-                    <CardHeader>
-                      <div className="flex items-center justify-between">
-                        <div><CardTitle>Select Racks</CardTitle><CardDescription>Choose racks to print.</CardDescription></div>
-                        <Button variant="outline" size="sm" onClick={selectAllRacks}>Select All</Button>
-                      </div>
-                    </CardHeader>
-                    <CardContent>
-                      <div className="space-y-3 max-h-96 overflow-y-auto">
-                        {racks.map((rack) => (
-                          <div key={rack.id} className="flex items-center gap-4 rounded-lg border p-3 cursor-pointer" onClick={() => toggleRack(rack.id)}>
-                            <Checkbox checked={selectedRacks.includes(rack.id)} onCheckedChange={() => toggleRack(rack.id)} />
-                            <div className="flex-1 min-w-0"><p className="font-mono text-sm font-medium truncate">{rack.code}</p><div className="flex gap-2 mt-1"><span className="text-xs text-muted-foreground">{rack.name}</span><span className="text-xs text-muted-foreground">• {rack.zone}</span></div></div>
-                          </div>
-                        ))}
-                      </div>
-                    </CardContent>
-                  </Card>
-                )}
-              </TabsContent>
-            </Tabs>
-          </div>
         </div>
       </div>
 
       <div id="print-area" className="hidden print:block">
         <div className="print-grid">
           {selectedGarmentData.map((garment) => {
-            const value = buildQrValue({ baseUrl: typeof window !== "undefined" ? window.location.origin : "", code: garment.code, mode: qrMode, entityPath: "garment" });
+            const value = buildQrValue({
+              baseUrl: typeof window !== "undefined" ? window.location.origin : "",
+              code: garment.code,
+              mode: qrMode,
+              entityPath: "garment",
+            });
             return (
               <div key={garment.id} className="print-item">
                 <QRCodeSVG value={value} size={512} level="M" includeMargin={true} />
-                <p className="font-mono text-base font-semibold mt-2">{garment.code}</p>
+                <p className="mt-2 font-mono text-base font-semibold">{garment.code}</p>
+                {garment.rack?.code ? (
+                  <p className="text-sm text-muted-foreground">{garment.rack.code}</p>
+                ) : null}
               </div>
             );
           })}
           {selectedRackData.map((rack) => {
-            const value = buildQrValue({ baseUrl: typeof window !== "undefined" ? window.location.origin : "", code: rack.code, mode: qrMode, entityPath: "rack" });
+            const value = buildQrValue({
+              baseUrl: typeof window !== "undefined" ? window.location.origin : "",
+              code: rack.code,
+              mode: qrMode,
+              entityPath: "rack",
+            });
             return (
               <div key={rack.id} className="print-item">
                 <QRCodeSVG value={value} size={512} level="M" includeMargin={true} />
-                <p className="font-mono text-base font-semibold mt-2">{rack.code}</p>
-                <p className="text-sm text-muted-foreground">{rack.name} • {rack.zone}</p>
+                <p className="mt-2 font-mono text-base font-semibold">{rack.code}</p>
+                <p className="text-sm text-muted-foreground">
+                  {rack.name} • {rack.zone}
+                </p>
               </div>
             );
           })}

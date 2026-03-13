@@ -72,12 +72,52 @@ function SidebarProvider({
 
   const [location] = useLocation();
 
-  // Close mobile sidebar when navigating (UX)
-  React.useEffect(() => {
-    if (!isMobile) return;
-    setOpenMobile(false);
-  }, [location, isMobile]);
+  const cleanupBodyLocks = React.useCallback(() => {
+    if (typeof document === "undefined") return;
+    document.body.style.removeProperty("pointer-events");
+    document.body.style.removeProperty("overflow");
+    document.body.removeAttribute("data-scroll-locked");
+  }, []);
 
+  // Close mobile sidebar when navigating and cleanup any stale body locks from the sheet.
+  React.useEffect(() => {
+    if (!isMobile) {
+      cleanupBodyLocks();
+      return;
+    }
+
+    setOpenMobile(false);
+    cleanupBodyLocks();
+  }, [location, isMobile, cleanupBodyLocks]);
+
+  // Ensure body locks are always cleared whenever the mobile sheet is closed.
+  React.useEffect(() => {
+    if (!openMobile) {
+      cleanupBodyLocks();
+    }
+  }, [openMobile, cleanupBodyLocks]);
+
+  // iOS/PWA resume hardening: when the app returns to foreground, clear stale locks.
+  React.useEffect(() => {
+    const handleVisible = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      cleanupBodyLocks();
+      if (isMobile) {
+        setOpenMobile(false);
+      }
+    };
+
+    window.addEventListener("pageshow", handleVisible);
+    window.addEventListener("focus", handleVisible);
+    document.addEventListener("visibilitychange", handleVisible);
+
+    return () => {
+      window.removeEventListener("pageshow", handleVisible);
+      window.removeEventListener("focus", handleVisible);
+      document.removeEventListener("visibilitychange", handleVisible);
+      cleanupBodyLocks();
+    };
+  }, [isMobile, cleanupBodyLocks]);
 
   // This is the internal state of the sidebar.
   // We use openProp and setOpenProp for control from outside the component.

@@ -103,6 +103,8 @@ export interface IStorage {
   updateCustomField(id: string, field: Partial<InsertCustomField>): Promise<CustomField | undefined>;
   deactivateCustomField(id: string): Promise<boolean>;
   createCustomFieldOption(option: InsertCustomFieldOption): Promise<CustomFieldOption>;
+  updateCustomFieldOptionLabel(id: string, label: string): Promise<CustomFieldOption | undefined>;
+  deactivateCustomFieldOption(id: string): Promise<boolean>;
 
   // Years
   getAllYears(): Promise<Year[]>;
@@ -393,6 +395,16 @@ export class DatabaseStorage implements IStorage {
   async createCustomFieldOption(option: InsertCustomFieldOption): Promise<CustomFieldOption> {
     const [created] = await db.insert(customFieldOptions).values(option).returning();
     return created;
+  }
+
+  async updateCustomFieldOptionLabel(id: string, label: string): Promise<CustomFieldOption | undefined> {
+    const [updated] = await db.update(customFieldOptions).set({ label }).where(eq(customFieldOptions.id, id)).returning();
+    return updated || undefined;
+  }
+
+  async deactivateCustomFieldOption(id: string): Promise<boolean> {
+    const result = await db.update(customFieldOptions).set({ isActive: false }).where(eq(customFieldOptions.id, id));
+    return result.rowCount !== null && result.rowCount > 0;
   }
 
   async getAllYears(): Promise<Year[]> {

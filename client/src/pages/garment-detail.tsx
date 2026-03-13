@@ -438,7 +438,7 @@ export default function GarmentDetailPage() {
               <Link href={`/garment/${encodeURIComponent(garment.code)}/print`}>
                 <Button variant="outline" size="sm" data-testid="button-print-garment-small">
                   <Printer className="w-4 h-4 mr-2" />
-                  Print
+                  Print Label
                 </Button>
               </Link>
             </div>
@@ -506,7 +506,7 @@ export default function GarmentDetailPage() {
                   }}
                 >
                   <Printer className="w-4 h-4 mr-2" />
-                  Print Rack
+                  Print Rack Label
                 </Button>
               </Link>
             </div>

@@ -494,6 +494,55 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  app.patch("/api/admin/custom-fields/options/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireMaster(req, res)) return;
+
+      const nextLabel = String(req.body?.label ?? "").trim();
+      if (!nextLabel) {
+        return res.status(400).json({ statusCode: 400, message: "Label is required", timestamp: new Date().toISOString() });
+      }
+
+      const fields = await storage.getAllCustomFields("GARMENT");
+      const ownerField = fields.find((field: any) => (field.options ?? []).some((option: any) => option.id === req.params.id));
+      if (!ownerField) {
+        return res.status(404).json({ statusCode: 404, message: "Option not found", timestamp: new Date().toISOString() });
+      }
+
+      const duplicateLabel = (ownerField.options ?? []).some((option: any) =>
+        option.id !== req.params.id &&
+        option.isActive !== false &&
+        String(option.label ?? "").trim().toLowerCase() === nextLabel.toLowerCase()
+      );
+
+      if (duplicateLabel) {
+        return res.status(409).json({ statusCode: 409, message: "Another option with that label already exists", timestamp: new Date().toISOString() });
+      }
+
+      const updated = await storage.updateCustomFieldOptionLabel(req.params.id, nextLabel);
+      if (!updated) {
+        return res.status(404).json({ statusCode: 404, message: "Option not found", timestamp: new Date().toISOString() });
+      }
+
+      res.json({ ok: true, option: updated });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/admin/custom-fields/options/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireMaster(req, res)) return;
+      const archived = await storage.deactivateCustomFieldOption(req.params.id);
+      if (!archived) {
+        return res.status(404).json({ statusCode: 404, message: "Option not found", timestamp: new Date().toISOString() });
+      }
+      res.json({ ok: true, archived: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/admin/custom-fields/template", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
       if (!requireMaster(req, res)) return;

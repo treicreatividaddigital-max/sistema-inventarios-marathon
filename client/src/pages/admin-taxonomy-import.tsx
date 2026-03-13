@@ -1,7 +1,8 @@
 import { useRef, useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Download, PlusCircle, Trash2, Upload } from "lucide-react";
+import { Check, Download, Pencil, PlusCircle, Trash2, Upload, X } from "lucide-react";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -84,6 +85,10 @@ export default function AdminTaxonomyImportPage() {
   const [customFieldFileName, setCustomFieldFileName] = useState("");
   const [taxonomySummary, setTaxonomySummary] = useState<TaxonomySummary | null>(null);
   const [customFieldSummary, setCustomFieldSummary] = useState<CustomFieldSummary | null>(null);
+  const [editingField, setEditingField] = useState<CustomField | null>(null);
+  const [newOptionLabel, setNewOptionLabel] = useState("");
+  const [editingOptionId, setEditingOptionId] = useState<string | null>(null);
+  const [editingOptionLabel, setEditingOptionLabel] = useState("");
   const [fieldDraft, setFieldDraft] = useState({
     key: "",
     label: "",
@@ -154,6 +159,79 @@ export default function AdminTaxonomyImportPage() {
     },
     onError: (error: any) => {
       toast({ title: "Custom fields import failed", description: error?.message || "Unknown error", variant: "destructive" });
+    },
+  });
+
+
+  const addFieldOptionMutation = useMutation({
+    mutationFn: async ({ fieldId, label }: { fieldId: string; label: string }) => {
+      const trimmed = label.trim();
+      if (!trimmed) {
+        throw new Error("Enter a valid option name");
+      }
+
+      return apiRequest("POST", `/api/admin/custom-fields/${fieldId}/options`, {
+        options: [{ value: trimmed, label: trimmed }],
+      });
+    },
+    onSuccess: async (_result, variables) => {
+      toast({ title: "Option added", description: "La nueva opción ya está disponible en el campo." });
+      setNewOptionLabel("");
+      await refreshCustomFields();
+
+      const updatedFields =
+        (queryClient.getQueryData(["/api/custom-fields/garment"]) as CustomField[] | undefined) ?? [];
+      const updatedField = updatedFields.find((field) => field.id === variables.fieldId) ?? null;
+      setEditingField(updatedField);
+    },
+    onError: (error: any) => {
+      toast({ title: "Could not add option", description: error?.message || "Unknown error", variant: "destructive" });
+    },
+  });
+
+
+  const archiveFieldOptionMutation = useMutation({
+    mutationFn: async ({ fieldId, optionId }: { fieldId: string; optionId: string }) =>
+      apiRequest("DELETE", `/api/admin/custom-fields/options/${optionId}`),
+    onSuccess: async (_result, variables) => {
+      toast({ title: "Option archived", description: "La opción se ocultó sin romper el historial." });
+      await refreshCustomFields();
+
+      const updatedFields =
+        (queryClient.getQueryData(["/api/custom-fields/garment"]) as CustomField[] | undefined) ?? [];
+      const updatedField = updatedFields.find((field) => field.id === variables.fieldId) ?? null;
+      setEditingField(updatedField);
+    },
+    onError: (error: any) => {
+      toast({ title: "Could not archive option", description: error?.message || "Unknown error", variant: "destructive" });
+    },
+  });
+
+
+  const renameFieldOptionMutation = useMutation({
+    mutationFn: async ({ fieldId, optionId, label }: { fieldId: string; optionId: string; label: string }) => {
+      const trimmed = label.trim();
+      if (!trimmed) {
+        throw new Error("Enter a valid option name");
+      }
+
+      return apiRequest("PATCH", `/api/admin/custom-fields/options/${optionId}`, {
+        label: trimmed,
+      });
+    },
+    onSuccess: async (_result, variables) => {
+      toast({ title: "Option renamed", description: "La opción fue actualizada sin romper el historial." });
+      setEditingOptionId(null);
+      setEditingOptionLabel("");
+      await refreshCustomFields();
+
+      const updatedFields =
+        (queryClient.getQueryData(["/api/custom-fields/garment"]) as CustomField[] | undefined) ?? [];
+      const updatedField = updatedFields.find((field) => field.id === variables.fieldId) ?? null;
+      setEditingField(updatedField);
+    },
+    onError: (error: any) => {
+      toast({ title: "Could not rename option", description: error?.message || "Unknown error", variant: "destructive" });
     },
   });
 
@@ -319,33 +397,39 @@ export default function AdminTaxonomyImportPage() {
         <CardContent>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
             {(customFieldsQuery.data ?? []).map((field) => (
-              <div key={field.id} className="rounded-lg border p-4 space-y-2">
-                <div className="flex items-center justify-between gap-2">
-                  <div>
+              <div key={field.id} className="rounded-lg border p-4 space-y-3">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
                     <div className="font-semibold">{field.label}</div>
                     <div className="text-xs text-muted-foreground">{field.key}</div>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="text-xs text-muted-foreground">{field.options.length} option(s)</div>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      size="icon"
-                      onClick={() => {
-                        const confirmed = window.confirm(`Archive configurable field "${field.label}"? It will disappear from the forms but existing garments will keep their saved values.`);
-                        if (confirmed) deleteFieldMutation.mutate(field.id);
-                      }}
-                      disabled={deleteFieldMutation.isPending}
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </Button>
-                  </div>
+                  <div className="text-xs text-muted-foreground shrink-0">{field.options.length} option(s)</div>
                 </div>
+
                 <div className="flex flex-wrap gap-2">
                   {field.options.slice(0, 6).map((option) => (
                     <span key={option.id} className="text-xs rounded-full border px-2 py-1">{option.label}</span>
                   ))}
                   {field.options.length > 6 && <span className="text-xs text-muted-foreground">+{field.options.length - 6} more</span>}
+                </div>
+
+                <div className="flex items-center gap-2 pt-1">
+                  <Button type="button" variant="outline" size="sm" onClick={() => setEditingField(field)}>
+                    <Pencil className="h-4 w-4 mr-2" />
+                    Editar
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => {
+                      const confirmed = window.confirm(`Archive configurable field "${field.label}"? It will disappear from the forms but existing garments will keep their saved values.`);
+                      if (confirmed) deleteFieldMutation.mutate(field.id);
+                    }}
+                    disabled={deleteFieldMutation.isPending}
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
                 </div>
               </div>
             ))}
@@ -353,6 +437,182 @@ export default function AdminTaxonomyImportPage() {
           </div>
         </CardContent>
       </Card>
+
+      <Dialog open={!!editingField} onOpenChange={(open) => !open && setEditingField(null)}>
+        <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-hidden p-0">
+          <DialogHeader className="border-b px-4 py-3 sm:px-6 sm:py-4">
+            <DialogTitle>{editingField ? `Editar campo: ${editingField.label}` : "Editar campo"}</DialogTitle>
+            <DialogDescription>
+              Administra las opciones del campo sin depender del Excel.
+            </DialogDescription>
+          </DialogHeader>
+
+          {editingField && (
+            <div className="flex max-h-[calc(85vh-72px)] flex-col sm:max-h-[calc(85vh-88px)]">
+              <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 sm:px-6">
+                <div className="space-y-4 sm:space-y-5">
+                  <div className="grid gap-3 sm:grid-cols-2">
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs text-muted-foreground">Visible label</div>
+                      <div className="mt-1 font-medium">{editingField.label}</div>
+                    </div>
+                    <div className="rounded-lg border p-3">
+                      <div className="text-xs text-muted-foreground">Technical key</div>
+                      <div className="mt-1 font-mono text-sm">{editingField.key}</div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border p-4 space-y-3">
+                    <div>
+                      <div className="font-medium">Agregar nueva opción</div>
+                      <div className="text-sm text-muted-foreground">
+                        Crea opciones individuales sin depender del Excel.
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <Input
+                        value={newOptionLabel}
+                        onChange={(e) => setNewOptionLabel(e.target.value)}
+                        placeholder="Ej. Nike"
+                        className="flex-1"
+                      />
+                      <Button
+                        type="button"
+                        onClick={() => {
+                          if (!editingField) return;
+                          addFieldOptionMutation.mutate({ fieldId: editingField.id, label: newOptionLabel });
+                        }}
+                        disabled={!editingField || !newOptionLabel.trim() || addFieldOptionMutation.isPending}
+                        className="w-full sm:w-auto"
+                      >
+                        <PlusCircle className="mr-2 h-4 w-4" />
+                        {addFieldOptionMutation.isPending ? "Agregando..." : "Agregar"}
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border">
+                    <div className="sticky top-0 z-10 border-b bg-background px-4 py-3">
+                      <div className="font-medium">Opciones actuales</div>
+                      <div className="text-sm text-muted-foreground">
+                        {editingField.options.length} opción(es) registradas en este campo.
+                      </div>
+                    </div>
+
+                    <div className="divide-y">
+                      {editingField.options.length > 0 ? (
+                        editingField.options.map((option) => (
+                          <div key={option.id} className="px-4 py-3">
+                            {editingOptionId === option.id ? (
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="min-w-0 flex-1">
+                                  <Input
+                                    value={editingOptionLabel}
+                                    onChange={(e) => setEditingOptionLabel(e.target.value)}
+                                    placeholder="Nuevo nombre"
+                                  />
+                                  <div className="mt-2 break-all text-xs text-muted-foreground">
+                                    Valor técnico conservado: {option.value}
+                                  </div>
+                                </div>
+
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                  <Button
+                                    type="button"
+                                    size="sm"
+                                    onClick={() => {
+                                      if (!editingField) return;
+                                      renameFieldOptionMutation.mutate({
+                                        fieldId: editingField.id,
+                                        optionId: option.id,
+                                        label: editingOptionLabel,
+                                      });
+                                    }}
+                                    disabled={!editingField || !editingOptionLabel.trim() || renameFieldOptionMutation.isPending}
+                                    className="w-full sm:w-auto"
+                                  >
+                                    <Check className="mr-2 h-4 w-4" />
+                                    Guardar
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingOptionId(null);
+                                      setEditingOptionLabel("");
+                                    }}
+                                    disabled={renameFieldOptionMutation.isPending}
+                                    className="w-full sm:w-auto"
+                                  >
+                                    <X className="mr-2 h-4 w-4" />
+                                    Cancelar
+                                  </Button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                <div className="min-w-0">
+                                  <div className="break-words font-medium">{option.label}</div>
+                                  <div className="break-all text-xs text-muted-foreground">{option.value}</div>
+                                </div>
+
+                                <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
+                                  <div className="text-xs text-muted-foreground">Disponible</div>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      setEditingOptionId(option.id);
+                                      setEditingOptionLabel(option.label);
+                                    }}
+                                    className="w-full sm:w-auto"
+                                  >
+                                    <Pencil className="mr-2 h-4 w-4" />
+                                    Renombrar
+                                  </Button>
+                                  <Button
+                                    type="button"
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => {
+                                      if (!editingField) return;
+                                      const confirmed = window.confirm(
+                                        `Archive option "${option.label}"? It will stop appearing in new selections but existing garments will keep their saved value.`,
+                                      );
+                                      if (!confirmed) return;
+                                      archiveFieldOptionMutation.mutate({ fieldId: editingField.id, optionId: option.id });
+                                    }}
+                                    disabled={archiveFieldOptionMutation.isPending}
+                                    className="w-full sm:w-auto"
+                                  >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Archivar
+                                  </Button>
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="px-4 py-6 text-sm text-muted-foreground">
+                          Este campo aún no tiene opciones.
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
+                    Renombrar corrige el nombre visible sin romper historial. Archivar la retira de uso futuro.
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+        </DialogContent>
+      </Dialog>
 
       {taxonomySummary && (
         <Card>

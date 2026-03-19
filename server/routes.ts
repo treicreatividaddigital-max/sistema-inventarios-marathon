@@ -1479,6 +1479,81 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }));
   };
 
+  const projectPublicGarment = (garment: any) => {
+    if (!garment) return null;
+
+    const name = [
+      garment?.category?.name,
+      garment?.garmentType?.name,
+      garment?.collection?.name,
+    ]
+      .filter((value: any) => typeof value === "string" && value.trim())
+      .join(" • ") || garment.code;
+
+    return {
+      code: garment.code,
+      name,
+      description: garment.description ?? null,
+      status: garment.status ?? null,
+      lot: garment.lot
+        ? {
+            code: garment.lot.code ?? null,
+            name: garment.lot.name ?? null,
+          }
+        : null,
+      year: garment.year
+        ? {
+            year: garment.year.year ?? null,
+            label: garment.year.label ?? null,
+          }
+        : null,
+      rack: garment.rack
+        ? {
+            code: garment.rack.code ?? null,
+            name: garment.rack.name ?? null,
+            zone: garment.rack.zone ?? null,
+          }
+        : null,
+      photoUrl: garment.photoUrl ?? null,
+      photoUrls: Array.isArray(garment.photoUrls)
+        ? garment.photoUrls.filter(Boolean).slice(0, 4)
+        : garment.photoUrl
+          ? [garment.photoUrl]
+          : [],
+      category: garment.category
+        ? {
+            name: garment.category.name ?? null,
+          }
+        : null,
+      garmentType: garment.garmentType
+        ? {
+            name: garment.garmentType.name ?? null,
+          }
+        : null,
+      collection: garment.collection
+        ? {
+            name: garment.collection.name ?? null,
+          }
+        : null,
+      color: garment.color ?? null,
+      size: garment.size ?? null,
+      gender: garment.gender ?? null,
+      customAttributes: garment.customAttributes ?? null,
+    };
+  };
+
+  app.get("/api/public/garments/:code", async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const garment = await storage.getGarmentByCode(req.params.code);
+      if (!garment) return res.sendStatus(404);
+
+      const hydratedGarment = (await hydrateGarments([garment]))[0];
+      res.json(projectPublicGarment(hydratedGarment));
+    } catch (error) {
+      next(error);
+    }
+  });
+
   // Devuelve el siguiente código sugerido para acelerar la creación (ej: GAR-MAR-001)
   app.get("/api/garments/next-code", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {

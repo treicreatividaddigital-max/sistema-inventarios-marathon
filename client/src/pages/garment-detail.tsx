@@ -62,6 +62,58 @@ function normalizePhotoUrls(garment?: Garment | null): string[] {
   return [];
 }
 
+
+function SmartImage({
+  src,
+  alt,
+  className,
+  loading = "lazy",
+  decoding = "async",
+  fetchPriority,
+  sizes,
+  onClick,
+}: {
+  src: string;
+  alt: string;
+  className?: string;
+  loading?: "eager" | "lazy";
+  decoding?: "async" | "sync" | "auto";
+  fetchPriority?: "high" | "low" | "auto";
+  sizes?: string;
+  onClick?: () => void;
+}) {
+  const [loaded, setLoaded] = useState(false);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    setLoaded(false);
+    setFailed(false);
+  }, [src]);
+
+  return (
+    <div className="relative h-full w-full bg-muted">
+      {!loaded && !failed ? <Skeleton className="absolute inset-0 h-full w-full" /> : null}
+      {failed ? (
+        <div className="flex h-full w-full items-center justify-center px-4 text-center text-sm text-muted-foreground">
+          Could not load image
+        </div>
+      ) : null}
+      <img
+        src={src}
+        alt={alt}
+        loading={loading}
+        decoding={decoding}
+        fetchPriority={fetchPriority}
+        sizes={sizes}
+        onLoad={() => setLoaded(true)}
+        onError={() => setFailed(true)}
+        onClick={onClick}
+        className={`${className ?? ""} ${loaded && !failed ? "opacity-100" : "opacity-0"} transition-opacity duration-200`}
+      />
+    </div>
+  );
+}
+
 function statusLabel(status?: Garment["status"]) {
   switch (status) {
     case "IN_STOCK":
@@ -243,10 +295,13 @@ export default function GarmentDetailPage() {
                   onClick={() => setPhotoDialogOpen(true)}
                   aria-label="Open photo"
                 >
-                  <img
+                  <SmartImage
                     src={currentPhoto}
                     alt="Garment"
                     className="h-[320px] w-full object-cover sm:h-[360px]"
+                    loading="eager"
+                    fetchPriority="high"
+                    sizes="(max-width: 640px) 100vw, 50vw"
                   />
                 </button>
               ) : (
@@ -294,10 +349,13 @@ export default function GarmentDetailPage() {
                     onClick={() => setPhotoIndex(i)}
                     aria-label={`Photo ${i + 1}`}
                   >
-                    <img
+                    <SmartImage
                       src={url}
                       alt={`Photo ${i + 1}`}
                       className="h-16 w-full object-cover"
+                      loading="lazy"
+                      fetchPriority="low"
+                      sizes="96px"
                     />
                   </button>
                 ))}
@@ -435,10 +493,13 @@ export default function GarmentDetailPage() {
             <div className="sm:col-span-2">
               {garment.qrUrl ? (
                 <div className="flex items-center justify-center rounded-lg border bg-muted p-4">
-                  <img
+                  <SmartImage
                     src={garmentQr?.qrUrl || garment.qrUrl}
                     alt="Garment QR"
-                    className="max-h-[220px] max-w-full"
+                    className="max-h-[220px] max-w-full object-contain"
+                    loading="lazy"
+                    fetchPriority="low"
+                    sizes="220px"
                   />
                 </div>
               ) : (
@@ -514,7 +575,14 @@ export default function GarmentDetailPage() {
           <div className="space-y-4">
             <div className="relative overflow-hidden rounded-lg border bg-muted">
               {currentPhoto ? (
-                <img src={currentPhoto} alt="Garment enlarged" className="max-h-[75vh] w-full object-contain" />
+                <SmartImage
+                  src={currentPhoto}
+                  alt="Garment enlarged"
+                  className="max-h-[75vh] w-full object-contain"
+                  loading="eager"
+                  fetchPriority="high"
+                  sizes="100vw"
+                />
               ) : (
                 <div className="flex h-[50vh] items-center justify-center text-sm text-muted-foreground">
                   No photo
@@ -559,7 +627,14 @@ export default function GarmentDetailPage() {
                     onClick={() => setPhotoIndex(i)}
                     aria-label={`Photo ${i + 1}`}
                   >
-                    <img src={url} alt={`Photo ${i + 1}`} className="h-16 w-full object-cover" />
+                    <SmartImage
+                      src={url}
+                      alt={`Photo ${i + 1}`}
+                      className="h-16 w-full object-cover"
+                      loading="lazy"
+                      fetchPriority="low"
+                      sizes="96px"
+                    />
                   </button>
                 ))}
               </div>

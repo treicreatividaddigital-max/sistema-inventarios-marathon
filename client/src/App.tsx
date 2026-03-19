@@ -15,6 +15,7 @@ import CuratorPage from "@/pages/curator";
 import DashboardPage from "@/pages/dashboard";
 import SearchPage from "@/pages/search";
 import GarmentDetailPage from "@/pages/garment-detail";
+import GarmentPublicDetailPage from "@/pages/garment-public-detail";
 import GarmentPrintPage from "@/pages/garment-print";
 import RackDetailPage from "@/pages/rack-detail";
 import RackPrintPage from "@/pages/rack-print";
@@ -29,6 +30,10 @@ import CuratorLotsPage from "@/pages/curator-lots";
 import CuratorRacksPage from "@/pages/curator-racks";
 import CuratorUsersPage from "@/pages/curator-users";
 import AdminTaxonomyImportPage from "@/pages/admin-taxonomy-import";
+
+function isPublicGarmentRoute(location: string) {
+  return /^\/garment\/[^/]+$/.test(location);
+}
 
 // Authenticated routes that use the sidebar layout
 function AuthenticatedRoutes() {
@@ -101,14 +106,32 @@ function AuthenticatedLayout() {
 function AppRouter() {
   const [location] = useLocation();
   const { user, isLoading } = useAuth();
+  const publicGarmentRoute = isPublicGarmentRoute(location);
 
-  // Show loading state while checking authentication
-  if (isLoading && location !== "/login" && location !== "/") {
+  // Show loading state while checking authentication, except for public garment view without a session.
+  if (isLoading && location !== "/login" && location !== "/" && !publicGarmentRoute) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="text-lg text-muted-foreground">Loading...</div>
       </div>
     );
+  }
+
+  // Public garment route: anonymous users see read-only, authenticated users keep the internal detail page.
+  if (publicGarmentRoute) {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-lg text-muted-foreground">Loading...</div>
+        </div>
+      );
+    }
+
+    if (user) {
+      return <AuthenticatedLayout />;
+    }
+
+    return <GarmentPublicDetailPage />;
   }
 
   // Public routes

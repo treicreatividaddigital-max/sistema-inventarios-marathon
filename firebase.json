@@ -7,15 +7,6 @@
         "firebase.json",
         "**/.*",
         "**/node_modules/**"
-      ],
-      "rewrites": [
-        {
-          "source": "**",
-          "run": {
-            "serviceId": "ms-inv-prod",
-            "region": "us-central1"
-          }
-        }
       ]
     }
   ]

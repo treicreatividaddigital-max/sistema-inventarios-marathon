@@ -297,6 +297,14 @@ const authMiddleware = async (req: AuthRequest, res: Response, next: NextFunctio
       });
     }
 
+    if (!user.isActive) {
+      return res.status(403).json({
+        statusCode: 403,
+        message: "Usuario archivado",
+        timestamp: new Date().toISOString(),
+      });
+    }
+
     const isMasterCurator = !!(
       user.role === "CURATOR" &&
       process.env.PRIMARY_CURATOR_EMAIL &&
@@ -715,6 +723,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
         });
       }
 
+      if (!user.isActive) {
+        return res.status(403).json({
+          statusCode: 403,
+          message: "Usuario archivado. Acceso deshabilitado.",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       const isValidPassword = await bcrypt.compare(password, user.passwordHash);
       if (!isValidPassword) {
         return res.status(401).json({
@@ -796,6 +812,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: u.email,
           name: u.name,
           role: u.role,
+          isActive: u.isActive,
           createdAt: u.createdAt,
         })),
       );
@@ -858,14 +875,31 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/users/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+  app.patch("/api/users/:id/archive", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     requirePermission(req, "manageUsers");
     try {
-      // Solo Curador Master puede eliminar usuarios
       if (!requireMaster(req, res)) return;
 
-      const deleted = await storage.deleteUser(req.params.id);
-      if (!deleted) return res.sendStatus(404);
+      if (req.user?.id === req.params.id) {
+        return res.status(400).json({ message: "You cannot archive yourself" });
+      }
+
+      const archived = await storage.archiveUser(req.params.id);
+      if (!archived) return res.sendStatus(404);
+
+      res.json({ ok: true });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/users/:id/reactivate", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    requirePermission(req, "manageUsers");
+    try {
+      if (!requireMaster(req, res)) return;
+
+      const reactivated = await storage.reactivateUser(req.params.id);
+      if (!reactivated) return res.sendStatus(404);
 
       res.json({ ok: true });
     } catch (error) {
@@ -1283,6 +1317,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       res.json({ rackId: rack.id, code: rack.code, rackUrl, qrUrl });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+
+
+  // =====================
+  // PUBLIC RACK VIEW (NO AUTH)
+  // =====================
+  app.get("/api/public/racks/:code", async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const rack = await storage.getRackByCode(req.params.code);
+      if (!rack) {
+        return res.status(404).json({ message: "Rack not found" });
+      }
+
+      const garments = await storage.getGarmentsByRack(rack.id);
+
+      return res.json({
+        rack,
+        garments,
+      });
     } catch (error) {
       next(error);
     }

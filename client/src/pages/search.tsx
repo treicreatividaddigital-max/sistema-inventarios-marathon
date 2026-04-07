@@ -33,10 +33,27 @@ type GarmentType = { id: string; name: string; categoryId: string };
 type Collection = { id: string; name: string };
 type Lot = { id: string; name: string; code: string };
 type Rack = { id: string; name: string; code: string };
+type YearOption = { id: string; year: number };
 
 const PAGE_SIZE = 24;
 const SEARCH_DEBOUNCE_MS = 350;
 const RESUME_REFRESH_THROTTLE_MS = 1500;
+
+function buildVisiblePages(currentPage: number, totalPages: number): (number | "ellipsis")[] {
+  if (totalPages <= 7) {
+    return Array.from({ length: totalPages }, (_, i) => i + 1);
+  }
+
+  if (currentPage <= 3) {
+    return [1, 2, 3, 4, "ellipsis", totalPages];
+  }
+
+  if (currentPage >= totalPages - 2) {
+    return [1, "ellipsis", totalPages - 3, totalPages - 2, totalPages - 1, totalPages];
+  }
+
+  return [1, "ellipsis", currentPage - 1, currentPage, currentPage + 1, "ellipsis", totalPages];
+}
 
 export default function SearchPage() {
   const queryClient = useQueryClient();
@@ -44,8 +61,7 @@ export default function SearchPage() {
   const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
   const [filters, setFilters] = useState<FilterState>({});
   const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [offset, setOffset] = useState(0);
-  const [allItems, setAllItems] = useState<any[]>([]);
+  const [currentPage, setCurrentPage] = useState(1);
   const resumeRefreshRef = useRef(0);
 
   useEffect(() => {
@@ -55,6 +71,12 @@ export default function SearchPage() {
 
     return () => window.clearTimeout(timeout);
   }, [searchQuery]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [debouncedSearchQuery, filters]);
+
+  const offset = (currentPage - 1) * PAGE_SIZE;
 
   const searchParams = useMemo(
     () => ({
@@ -75,31 +97,10 @@ export default function SearchPage() {
     refetch,
   } = useGarmentSearch(searchParams);
 
-  const garments = searchResult?.items ?? [];
+  const items = searchResult?.items ?? [];
   const total = searchResult?.total ?? 0;
-  const hasMore = searchResult?.hasMore ?? false;
-
-  useEffect(() => {
-    if (!searchResult) return;
-
-    if (offset === 0) {
-      setAllItems(searchResult.items);
-      return;
-    }
-
-    setAllItems((prev) => {
-      const seen = new Set(prev.map((item) => item.id));
-      const next = [...prev];
-      for (const item of searchResult.items) {
-        if (!seen.has(item.id)) next.push(item);
-      }
-      return next;
-    });
-  }, [searchResult, offset]);
-
-  useEffect(() => {
-    setOffset(0);
-  }, [debouncedSearchQuery, filters]);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const visiblePages = buildVisiblePages(currentPage, totalPages);
 
   const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
@@ -126,6 +127,11 @@ export default function SearchPage() {
     staleTime: 5 * 60_000,
   });
 
+  const { data: years = [] } = useQuery<YearOption[]>({
+    queryKey: ["/api/years"],
+    staleTime: 5 * 60_000,
+  });
+
   const activeFiltersCount = Object.values(filters).filter(Boolean).length;
 
   const clearFilter = (key: keyof FilterState) => {
@@ -140,8 +146,7 @@ export default function SearchPage() {
     setFilters({});
     setSearchQuery("");
     setDebouncedSearchQuery("");
-    setOffset(0);
-    setAllItems([]);
+    setCurrentPage(1);
   };
 
   const refreshSearchView = useCallback(async () => {
@@ -149,8 +154,7 @@ export default function SearchPage() {
     if (now - resumeRefreshRef.current < RESUME_REFRESH_THROTTLE_MS) return;
     resumeRefreshRef.current = now;
 
-    setOffset(0);
-    setAllItems([]);
+    setCurrentPage(1);
 
     await queryClient.invalidateQueries({
       predicate: (q) => {
@@ -178,6 +182,19 @@ export default function SearchPage() {
       document.removeEventListener("visibilitychange", handleResume);
     };
   }, [refreshSearchView]);
+
+  const goToPage = (page: number) => {
+    const safePage = Math.min(Math.max(page, 1), totalPages);
+    setCurrentPage(safePage);
+    window.requestAnimationFrame(() => {
+      const main = document.querySelector("main");
+      if (main instanceof HTMLElement) {
+        main.scrollTo({ top: 0, behavior: "auto" });
+      } else {
+        window.scrollTo({ top: 0, behavior: "auto" });
+      }
+    });
+  };
 
   const FilterContent = () => (
     <div className="space-y-6">
@@ -247,6 +264,30 @@ export default function SearchPage() {
             {collections.map((coll) => (
               <SelectItem key={coll.id} value={coll.id}>
                 {coll.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div>
+        <Label htmlFor="filter-year" className="mb-2 block text-sm font-medium">
+          Year
+        </Label>
+        <Select
+          value={filters.yearId}
+          onValueChange={(value) =>
+            setFilters((prev) => ({ ...prev, yearId: value === "all" ? undefined : value }))
+          }
+        >
+          <SelectTrigger id="filter-year" data-testid="select-year">
+            <SelectValue placeholder="Select year" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="all">All Years</SelectItem>
+            {years.map((y) => (
+              <SelectItem key={y.id} value={y.id}>
+                {y.year}
               </SelectItem>
             ))}
           </SelectContent>
@@ -494,6 +535,14 @@ export default function SearchPage() {
               </button>
             </Badge>
           )}
+          {filters.yearId && (
+            <Badge variant="secondary" className="gap-1" data-testid="badge-filter-year">
+              Year: {years.find((y) => y.id === filters.yearId)?.year}
+              <button onClick={() => clearFilter("yearId")} className="ml-1 rounded-full p-0.5 hover:bg-secondary-foreground/10">
+                <X className="h-3 w-3" />
+              </button>
+            </Badge>
+          )}
           {filters.lotId && (
             <Badge variant="secondary" className="gap-1" data-testid="badge-filter-lot">
               Lot: {lots.find((l) => l.id === filters.lotId)?.name}
@@ -547,11 +596,11 @@ export default function SearchPage() {
 
       <div>
         <p className="mb-4 text-sm text-muted-foreground" data-testid="text-results-count">
-          {garmentsLoading && offset === 0
+          {garmentsLoading
             ? "Loading..."
-            : total > allItems.length
-              ? `Showing ${allItems.length} of ${total} results`
-              : `${total} result${total !== 1 ? "s" : ""} found`}
+            : total > 0
+              ? `Showing page ${currentPage} of ${totalPages} • ${total} result${total !== 1 ? "s" : ""} found`
+              : "0 results found"}
         </p>
 
         {isError ? (
@@ -570,7 +619,7 @@ export default function SearchPage() {
               </Button>
             </CardContent>
           </Card>
-        ) : garmentsLoading && offset === 0 ? (
+        ) : garmentsLoading ? (
           <div className="flex items-center justify-center py-16">
             <div className="text-lg text-muted-foreground">Loading garments...</div>
           </div>
@@ -589,22 +638,78 @@ export default function SearchPage() {
         ) : (
           <div className="space-y-6">
             <div className="grid grid-cols-1 gap-6 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              {allItems.map((garment) => (
+              {items.map((garment) => (
                 <GarmentCard key={garment.id} garment={garment} />
               ))}
             </div>
 
-            {hasMore && (
-              <div className="flex justify-center">
-                <Button
-                  variant="outline"
-                  onClick={() => setOffset((prev) => prev + PAGE_SIZE)}
-                  disabled={garmentsLoading}
-                  data-testid="button-load-more-results"
-                >
-                  {garmentsLoading ? "Loading..." : "Load more"}
-                </Button>
-              </div>
+            {totalPages > 1 && (
+              <>
+                <div className="flex items-center justify-between gap-2 md:hidden">
+                  <Button
+                    variant="outline"
+                    onClick={() => goToPage(currentPage - 1)}
+                    disabled={currentPage === 1 || isFetching}
+                    data-testid="button-page-prev-mobile"
+                  >
+                    Previous
+                  </Button>
+
+                  <div
+                    className="min-w-0 flex-1 text-center text-sm text-muted-foreground"
+                    data-testid="text-page-indicator-mobile"
+                  >
+                    Page {currentPage} of {totalPages}
+                  </div>
+
+                  <Button
+                    variant="outline"
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={currentPage === totalPages || isFetching}
+                    data-testid="button-page-next-mobile"
+                  >
+                    Next
+                  </Button>
+                </div>
+
+                <div className="hidden flex-wrap items-center justify-center gap-2 md:flex">
+                  <Button
+                    variant="outline"
+                    onClick={() => goToPage(currentPage - 1)}
+                    disabled={currentPage === 1 || isFetching}
+                    data-testid="button-page-prev"
+                  >
+                    Previous
+                  </Button>
+
+                  {visiblePages.map((page, index) =>
+                    page === "ellipsis" ? (
+                      <span key={`ellipsis-${index}`} className="px-2 text-sm text-muted-foreground">
+                        ...
+                      </span>
+                    ) : (
+                      <Button
+                        key={page}
+                        variant={page === currentPage ? "default" : "outline"}
+                        onClick={() => goToPage(page)}
+                        disabled={isFetching}
+                        data-testid={`button-page-${page}`}
+                      >
+                        {page}
+                      </Button>
+                    ),
+                  )}
+
+                  <Button
+                    variant="outline"
+                    onClick={() => goToPage(currentPage + 1)}
+                    disabled={currentPage === totalPages || isFetching}
+                    data-testid="button-page-next"
+                  >
+                    Next
+                  </Button>
+                </div>
+              </>
             )}
           </div>
         )}

@@ -35,6 +35,10 @@ function isPublicGarmentRoute(location: string) {
   return /^\/garment\/[^/]+$/.test(location);
 }
 
+function isPublicRackRoute(location: string) {
+  return /^\/rack\/[^/]+$/.test(location);
+}
+
 // Authenticated routes that use the sidebar layout
 function AuthenticatedRoutes() {
   return (
@@ -107,9 +111,10 @@ function AppRouter() {
   const [location] = useLocation();
   const { user, isLoading } = useAuth();
   const publicGarmentRoute = isPublicGarmentRoute(location);
+  const publicRackRoute = isPublicRackRoute(location);
 
   // Show loading state while checking authentication, except for public garment view without a session.
-  if (isLoading && location !== "/login" && location !== "/" && !publicGarmentRoute) {
+  if (isLoading && location !== "/login" && location !== "/" && !publicGarmentRoute && !publicRackRoute) {
     return (
       <div className="flex items-center justify-center h-screen">
         <div className="text-lg text-muted-foreground">Loading...</div>
@@ -132,6 +137,23 @@ function AppRouter() {
     }
 
     return <GarmentPublicDetailPage />;
+  }
+
+  // Public rack route: anonymous users see read-only, authenticated users keep the internal detail page.
+  if (publicRackRoute) {
+    if (isLoading) {
+      return (
+        <div className="flex items-center justify-center h-screen">
+          <div className="text-lg text-muted-foreground">Loading...</div>
+        </div>
+      );
+    }
+
+    if (user) {
+      return <AuthenticatedLayout />;
+    }
+
+    return <RackDetailPage />;
   }
 
   // Public routes

@@ -21,6 +21,8 @@ type Garment = {
   photoUrl: string | null;
   category?: { id: string; name: string } | null;
   garmentType?: { id: string; name: string } | null;
+  collection?: { id: string; name: string } | null;
+  year?: { id: string; year: number; label?: string | null } | null;
   rack?: { id: string; name: string; code: string } | null;
   lot?: { id: string; name: string; code: string } | null;
 };
@@ -129,9 +131,8 @@ export function GarmentCard({ garment }: GarmentCardProps) {
                     setImageFailed(true);
                     setImageLoaded(false);
                   }}
-                  className={`w-full h-full object-cover transition-opacity duration-200 ${
-                    imageLoaded ? "opacity-100" : "opacity-0"
-                  }`}
+                  className={`w-full h-full object-cover transition-opacity duration-200 ${imageLoaded ? "opacity-100" : "opacity-0"
+                    }`}
                   data-testid={`img-photo-${garment.id}`}
                 />
               </>
@@ -165,6 +166,16 @@ export function GarmentCard({ garment }: GarmentCardProps) {
           {garment.garmentType && (
             <p className="text-muted-foreground" data-testid={`text-type-${garment.id}`}>
               <span className="font-medium">Type:</span> {garment.garmentType.name}
+            </p>
+          )}
+          {garment.collection && (
+            <p className="text-muted-foreground">
+              <span className="font-medium">Collection:</span> {garment.collection.name}
+            </p>
+          )}
+          {garment.year && (
+            <p className="text-muted-foreground">
+              <span className="font-medium">Year:</span> {garment.year.year}
             </p>
           )}
           {garment.rack ? (

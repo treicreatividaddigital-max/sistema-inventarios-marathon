@@ -72,6 +72,8 @@ export interface IStorage {
   getUserByEmail(email: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   getAllUsers(): Promise<User[]>;
+  archiveUser(id: string): Promise<boolean>;
+  reactivateUser(id: string): Promise<boolean>;
   deleteUser(id: string): Promise<boolean>;
 
   // Categories
@@ -244,6 +246,24 @@ export class DatabaseStorage implements IStorage {
 
   async getAllUsers(): Promise<User[]> {
     return await db.select().from(users).orderBy(desc(users.createdAt));
+  }
+
+  async archiveUser(id: string): Promise<boolean> {
+    const result = await db
+      .update(users)
+      .set({ isActive: false })
+      .where(eq(users.id, id));
+
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async reactivateUser(id: string): Promise<boolean> {
+    const result = await db
+      .update(users)
+      .set({ isActive: true })
+      .where(eq(users.id, id));
+
+    return result.rowCount !== null && result.rowCount > 0;
   }
 
   async deleteUser(id: string): Promise<boolean> {
@@ -543,8 +563,19 @@ export class DatabaseStorage implements IStorage {
     return row || undefined;
   }
 
-  async getGarmentsByRack(rackId: string): Promise<Garment[]> {
-    return await db.select().from(garments).where(eq(garments.rackId, rackId)).orderBy(desc(garments.createdAt));
+  async getGarmentsByRack(rackId: string): Promise<any[]> {
+    return await db.query.garments.findMany({
+      where: eq(garments.rackId, rackId),
+      with: {
+        category: true,
+        garmentType: true,
+        rack: true,
+        lot: true,
+        collection: true,
+        year: true,
+      },
+      orderBy: [desc(garments.createdAt)],
+    });
   }
 
   async createGarment(garment: InsertGarment): Promise<Garment> {

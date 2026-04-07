@@ -68,6 +68,7 @@ type UserRow = {
   email: string;
   name: string;
   role: "ADMIN" | "CURATOR" | "USER";
+  isActive: boolean;
   createdAt: string;
 };
 
@@ -125,16 +126,16 @@ export default function CuratorUsersPage() {
     },
   });
 
-  const deleteMutation = useMutation({
-    mutationFn: async (userId: string) => await apiRequest("DELETE", `/api/users/${userId}`),
+  const archiveMutation = useMutation({
+    mutationFn: async (userId: string) => await apiRequest("PATCH", `/api/users/${userId}/archive`),
     onSuccess: () => {
-      toast({ title: "User deleted", description: "The user has been deleted successfully." });
+      toast({ title: "User archived", description: "The user has been archived successfully." });
       queryClient.invalidateQueries({ queryKey: ["/api/users"] });
     },
     onError: (error: any) => {
       toast({
         title: "Error",
-        description: error instanceof Error ? error.message : "Failed to delete user",
+        description: error instanceof Error ? error.message : "Failed to archive user",
         variant: "destructive",
       });
     },
@@ -172,6 +173,7 @@ export default function CuratorUsersPage() {
                   <TableHead>Name</TableHead>
                   <TableHead>Email</TableHead>
                   <TableHead>Role</TableHead>
+                  <TableHead>Status</TableHead>
                   <TableHead>Created</TableHead>
                   <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
@@ -186,6 +188,11 @@ export default function CuratorUsersPage() {
                       <TableCell>
                         <Badge variant={u.role === "CURATOR" ? "default" : "secondary"}>{u.role}</Badge>
                       </TableCell>
+                      <TableCell>
+                        <Badge variant={u.isActive ? "default" : "secondary"}>
+                          {u.isActive ? "Active" : "Archived"}
+                        </Badge>
+                      </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {u.createdAt ? new Date(u.createdAt).toLocaleString() : ""}
                       </TableCell>
@@ -196,12 +203,18 @@ export default function CuratorUsersPage() {
                             <Button
                               variant="destructive"
                               size="sm"
-                              disabled={isSelf || deleteMutation.isPending}
-                              title={isSelf ? "You cannot delete yourself" : "Delete user"}
-                              data-testid={`button-delete-user-${u.id}`}
+                              disabled={isSelf || archiveMutation.isPending || !u.isActive}
+                              title={
+                                isSelf
+                                  ? "You cannot archive yourself"
+                                  : !u.isActive
+                                    ? "User already archived"
+                                    : "Archive user"
+                              }
+                              data-testid={`button-archive-user-${u.id}`}
                             >
                               <Trash2 className="h-4 w-4 mr-2" />
-                              Delete
+                              Archive
                             </Button>
                           </AlertDialogTrigger>
                           <AlertDialogContent>
@@ -216,7 +229,7 @@ export default function CuratorUsersPage() {
                               <AlertDialogCancel>Cancel</AlertDialogCancel>
                               <AlertDialogAction
                                 className="bg-destructive text-destructive-foreground border border-destructive-border"
-                                onClick={() => deleteMutation.mutate(u.id)}
+                                onClick={() => archiveMutation.mutate(u.id)}
                               >
                                 Delete
                               </AlertDialogAction>

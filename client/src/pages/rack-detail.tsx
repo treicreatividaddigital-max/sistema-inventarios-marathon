@@ -13,6 +13,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { toast } from "@/hooks/use-toast";
 import { apiRequest, queryClient } from "@/lib/queryClient";
+import { useAuth } from "@/lib/auth-context";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -28,8 +29,18 @@ export default function RackDetailPage() {
   const [, params] = useRoute("/rack/:code");
   const rackCode = params?.code;
 
+  const { user } = useAuth();
+  const isPublicView = !user;
+
   const { data, isLoading, error } = useQuery<RackWithGarments>({
-    queryKey: ["/api/racks/by-code", rackCode],
+    queryKey: [isPublicView ? "/api/public/racks" : "/api/racks/by-code", rackCode],
+    queryFn: async () =>
+      await apiRequest(
+        "GET",
+        isPublicView
+          ? `/api/public/racks/${encodeURIComponent(rackCode || "")}`
+          : `/api/racks/by-code/${encodeURIComponent(rackCode || "")}`,
+      ),
     enabled: !!rackCode,
   });
 
@@ -42,7 +53,7 @@ export default function RackDetailPage() {
 
   const { data: allRacks } = useQuery<Rack[]>({
     queryKey: ["/api/racks"],
-    enabled: moveOpen,
+    enabled: moveOpen && !isPublicView,
   });
 
   const destinationRacks = useMemo(() => {
@@ -50,11 +61,11 @@ export default function RackDetailPage() {
     return (allRacks || []).filter((r) => r.id !== currentRackId);
   }, [allRacks, data?.id]);
 
-  const rackGarments = useMemo(() => (data?.garments || []), [data]);
+  const rackGarments = useMemo(() => data?.garments || [], [data]);
   const selectedCount = useMemo(() => selectedIds.size, [selectedIds]);
   const allSelected = useMemo(
     () => rackGarments.length > 0 && selectedIds.size === rackGarments.length,
-    [selectedIds, rackGarments.length]
+    [selectedIds, rackGarments.length],
   );
 
   const toggleAll = (checked: boolean) => {
@@ -72,17 +83,16 @@ export default function RackDetailPage() {
   };
 
   const handlePrintQr = () => {
-    const rackCode = data?.code;
-    if (!rackCode) return;
-    // No popups: abrir pantalla de impresión en la misma pestaña
-    window.location.href = `/rack/${encodeURIComponent(rackCode)}/print`;
+    const code = data?.code;
+    if (!code) return;
+    window.location.href = `/rack/${encodeURIComponent(code)}/print`;
   };
 
   const handleOpenMove = (open: boolean) => {
     setMoveOpen(open);
     if (open) {
       setToRackId("");
-      setSelectedIds(new Set(rackGarments.map((g) => g.id))); // default all
+      setSelectedIds(new Set(rackGarments.map((g) => g.id)));
     }
   };
 
@@ -94,6 +104,7 @@ export default function RackDetailPage() {
       toast({ title: "Select destination rack", variant: "destructive" });
       return;
     }
+
     if (selectedIds.size === 0) {
       toast({ title: "Select at least 1 garment", variant: "destructive" });
       return;
@@ -111,12 +122,15 @@ export default function RackDetailPage() {
       handleOpenMove(false);
       queryClient.invalidateQueries();
     } catch (e: any) {
-      toast({ title: "Move failed", description: e?.message || String(e), variant: "destructive" });
+      toast({
+        title: "Move failed",
+        description: e?.message || String(e),
+        variant: "destructive",
+      });
     } finally {
       setIsMoving(false);
     }
   };
-
 
   if (isLoading) {
     return (
@@ -137,15 +151,16 @@ export default function RackDetailPage() {
   const rack = data;
   const garments = data.garments || [];
 
-  
   return (
     <div className="space-y-6">
       <div className="flex items-center gap-4">
-        <Link href="/curator/racks">
-          <Button variant="ghost" size="icon" data-testid="button-back">
-            <ArrowLeft className="h-5 w-5" />
-          </Button>
-        </Link>
+        {!isPublicView && (
+          <Link href="/curator/racks">
+            <Button variant="ghost" size="icon" data-testid="button-back">
+              <ArrowLeft className="h-5 w-5" />
+            </Button>
+          </Link>
+        )}
         <div className="flex-1">
           <h1 className="text-3xl font-semibold">Rack Details</h1>
           <p className="text-muted-foreground mt-1 font-mono text-sm">
@@ -243,94 +258,109 @@ export default function RackDetailPage() {
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>Quick Actions</CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-2">
-              <Button className="w-full" variant="outline" data-testid="button-print-qr" onClick={handlePrintQr} disabled={isPrinting}>
-                <QrCodeIcon className="h-4 w-4 mr-2" />
-                {isPrinting ? "Preparing print…" : "Print QR Code"}
-              </Button>
-              <Button className="w-full" variant="outline" data-testid="button-move-all" onClick={() => handleOpenMove(true)} disabled={garments.length === 0}>
-                <Package className="h-4 w-4 mr-2" />
-                Move All Garments
-              </Button>
-            </CardContent>
-          </Card>
+          {!isPublicView && (
+            <Card>
+              <CardHeader>
+                <CardTitle>Quick Actions</CardTitle>
+              </CardHeader>
+              <CardContent className="space-y-2">
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  data-testid="button-print-qr"
+                  onClick={handlePrintQr}
+                  disabled={isPrinting}
+                >
+                  <QrCodeIcon className="h-4 w-4 mr-2" />
+                  {isPrinting ? "Preparing print…" : "Print QR Code"}
+                </Button>
+                <Button
+                  className="w-full"
+                  variant="outline"
+                  data-testid="button-move-all"
+                  onClick={() => handleOpenMove(true)}
+                  disabled={garments.length === 0}
+                >
+                  <Package className="h-4 w-4 mr-2" />
+                  Move All Garments
+                </Button>
+              </CardContent>
+            </Card>
+          )}
         </div>
       </div>
-    
-      <Dialog open={moveOpen} onOpenChange={handleOpenMove}>
-        <DialogContent className="sm:max-w-xl">
-          <DialogHeader>
-            <DialogTitle>Move garments</DialogTitle>
-            <DialogDescription>
-              From rack <span className="font-mono">{rack.code}</span>. Select destination and what to move.
-            </DialogDescription>
-          </DialogHeader>
 
-          <div className="space-y-4">
-            <div className="space-y-2">
-              <div className="text-sm font-medium">Destination rack</div>
-              <Select value={toRackId} onValueChange={setToRackId}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Select a rack…" />
-                </SelectTrigger>
-                <SelectContent>
-                  {destinationRacks.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.code} — {r.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
+      {!isPublicView && (
+        <Dialog open={moveOpen} onOpenChange={handleOpenMove}>
+          <DialogContent className="sm:max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Move garments</DialogTitle>
+              <DialogDescription>
+                From rack <span className="font-mono">{rack.code}</span>. Select destination and what to move.
+              </DialogDescription>
+            </DialogHeader>
 
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Checkbox
-                  checked={allSelected}
-                  onCheckedChange={(v) => toggleAll(v === true)}
-                />
-                <span className="text-sm">Select all</span>
-              </div>
-              <div className="text-sm text-muted-foreground">
-                Selected: {selectedCount}/{garments.length}
-              </div>
-            </div>
-
-            <ScrollArea className="h-56 rounded-md border p-3">
+            <div className="space-y-4">
               <div className="space-y-2">
-                {garments.map((g) => (
-                  <div key={g.id} className="flex items-center gap-3">
-                    <Checkbox
-                      checked={selectedIds.has(g.id)}
-                      onCheckedChange={(v) => toggleOne(g.id, v === true)}
-                    />
-                    <div className="min-w-0">
-                      <div className="font-mono text-sm truncate">{g.code}</div>
-                      <div className="text-xs text-muted-foreground truncate">
-                        {g.size} • {g.color} • {g.gender}
+                <div className="text-sm font-medium">Destination rack</div>
+                <Select value={toRackId} onValueChange={setToRackId}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select a rack…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {destinationRacks.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.code} — {r.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Checkbox
+                    checked={allSelected}
+                    onCheckedChange={(v) => toggleAll(v === true)}
+                  />
+                  <span className="text-sm">Select all</span>
+                </div>
+                <div className="text-sm text-muted-foreground">
+                  Selected: {selectedCount}/{garments.length}
+                </div>
+              </div>
+
+              <ScrollArea className="h-56 rounded-md border p-3">
+                <div className="space-y-2">
+                  {garments.map((g) => (
+                    <div key={g.id} className="flex items-center gap-3">
+                      <Checkbox
+                        checked={selectedIds.has(g.id)}
+                        onCheckedChange={(v) => toggleOne(g.id, v === true)}
+                      />
+                      <div className="min-w-0">
+                        <div className="font-mono text-sm truncate">{g.code}</div>
+                        <div className="text-xs text-muted-foreground truncate">
+                          {g.size} • {g.color} • {g.gender}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ))}
-              </div>
-            </ScrollArea>
-          </div>
+                  ))}
+                </div>
+              </ScrollArea>
+            </div>
 
-          <DialogFooter>
-            <Button variant="outline" onClick={() => handleOpenMove(false)} disabled={isMoving}>
-              Cancel
-            </Button>
-            <Button onClick={handleMove} disabled={isMoving || !toRackId || selectedIds.size === 0}>
-              {isMoving ? "Moving…" : "Move"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
-
-</div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => handleOpenMove(false)} disabled={isMoving}>
+                Cancel
+              </Button>
+              <Button onClick={handleMove} disabled={isMoving || !toRackId || selectedIds.size === 0}>
+                {isMoving ? "Moving…" : "Move"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
+    </div>
   );
 }

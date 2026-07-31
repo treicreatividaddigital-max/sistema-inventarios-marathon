@@ -1,0 +1,42 @@
+{
+  "agent": "claude",
+  "taskId": "fix-api-adapter",
+  "size": "small",
+  "phase": "implement",
+  "outcome": "Alinear las requests internas con el contrato sin cambiar schemas públicos.",
+  "readFiles": [
+    "src/tool.ts",
+    "src/schema.ts"
+  ],
+  "modifyFiles": [
+    "src/tool.ts",
+    "scripts/qa/tool-qa.ts"
+  ],
+  "validationCommands": [
+    "npm run build",
+    "node scripts/qa/tool-qa.ts"
+  ],
+  "broadScanAllowed": false,
+  "subagentsAllowed": 0,
+  "parallelAgentsAllowed": 0,
+  "isolatedWorktrees": false,
+  "deploysAllowed": 0,
+  "smokesAllowed": 0,
+  "productionCallsAllowed": 0,
+  "productionWrites": false,
+  "confirmationPresent": false,
+  "boundaryQaPresent": true,
+  "platformLimitsVerified": true,
+  "canonicalRunner": null,
+  "externalCallBudget": {
+    "expected": 0,
+    "limit": 0,
+    "breakdown": []
+  },
+  "evidence": {
+    "runId": false,
+    "requestResponseSeparated": false,
+    "hash": false,
+    "assertions": true
+  }
+}

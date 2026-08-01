@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Search as SearchIcon, SlidersHorizontal, X, RefreshCcw } from "lucide-react";
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
@@ -57,12 +58,34 @@ function buildVisiblePages(currentPage: number, totalPages: number): (number | "
 
 export default function SearchPage() {
   const queryClient = useQueryClient();
-  const [searchQuery, setSearchQuery] = useState("");
-  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState("");
-  const [filters, setFilters] = useState<FilterState>({});
-  const [isFilterOpen, setIsFilterOpen] = useState(false);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [_location, setLocation] = useLocation();
   const resumeRefreshRef = useRef(0);
+
+  // Parse URL query params on mount
+  const [searchQuery, setSearchQuery] = useState(() => {
+    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    return params.get("q") || "";
+  });
+  const [debouncedSearchQuery, setDebouncedSearchQuery] = useState(() => {
+    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    return params.get("q") || "";
+  });
+  const [filters, setFilters] = useState<FilterState>(() => {
+    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    const result: any = {};
+    params.forEach((value, key) => {
+      if (key !== "q" && key !== "page" && value) {
+        result[key] = value;
+      }
+    });
+    return result as FilterState;
+  });
+  const [isFilterOpen, setIsFilterOpen] = useState(false);
+  const [currentPage, setCurrentPage] = useState(() => {
+    const params = new URLSearchParams(typeof window !== "undefined" ? window.location.search : "");
+    const page = params.get("page");
+    return page ? Math.max(1, parseInt(page, 10)) : 1;
+  });
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -75,6 +98,21 @@ export default function SearchPage() {
   useEffect(() => {
     setCurrentPage(1);
   }, [debouncedSearchQuery, filters]);
+
+  // Update URL when search params change
+  useEffect(() => {
+    const params = new URLSearchParams();
+    if (debouncedSearchQuery) params.set("q", debouncedSearchQuery);
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value) params.set(key, String(value));
+    });
+    if (currentPage > 1) params.set("page", String(currentPage));
+
+    const newUrl = params.toString() ? `/search?${params.toString()}` : "/search";
+    if (newUrl !== `${_location}${typeof window !== "undefined" ? window.location.search : ""}`) {
+      setLocation(newUrl);
+    }
+  }, [debouncedSearchQuery, filters, currentPage, setLocation, _location]);
 
   const offset = (currentPage - 1) * PAGE_SIZE;
 

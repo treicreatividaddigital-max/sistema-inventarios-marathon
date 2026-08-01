@@ -196,12 +196,10 @@ export default function GarmentDetailPage() {
             <CardDescription>Missing garment code.</CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/search">
-              <Button variant="outline">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back
-              </Button>
-            </Link>
+            <Button variant="outline" onClick={() => window.history.back()}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -235,12 +233,10 @@ export default function GarmentDetailPage() {
             </CardDescription>
           </CardHeader>
           <CardContent>
-            <Link href="/search">
-              <Button variant="outline">
-                <ArrowLeft className="mr-2 h-4 w-4" />
-                Back
-              </Button>
-            </Link>
+            <Button variant="outline" onClick={() => window.history.back()}>
+              <ArrowLeft className="mr-2 h-4 w-4" />
+              Back
+            </Button>
           </CardContent>
         </Card>
       </div>
@@ -251,11 +247,9 @@ export default function GarmentDetailPage() {
     <div className="space-y-6 overflow-x-hidden p-4 sm:p-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
         <div className="flex min-w-0 items-start gap-3">
-          <Link href="/search">
-            <Button variant="outline" size="icon" aria-label="Back" className="shrink-0">
-              <ArrowLeft className="h-4 w-4" />
-            </Button>
-          </Link>
+          <Button variant="outline" size="icon" aria-label="Back" className="shrink-0" onClick={() => window.history.back()}>
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
 
           <div className="min-w-0">
             <h1 className="flex min-w-0 items-center gap-2 text-xl font-semibold sm:text-2xl">

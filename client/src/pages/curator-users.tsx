@@ -233,14 +233,103 @@ export default function CuratorUsersPage() {
     },
   });
 
+  const ResetPasswordDialog = ({ userId, userName }: { userId: string; userName: string }) => (
+    <Dialog open={resetPasswordDialogOpen && resetPasswordUserId === userId} onOpenChange={setResetPasswordDialogOpen}>
+      <DialogTrigger asChild>
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={resetPasswordMutation.isPending}
+          title="Reset password"
+          data-testid={`button-reset-password-${userId}`}
+          onClick={() => {
+            setResetPasswordUserId(userId);
+            setResetPasswordUserName(userName);
+            setResetPasswordDialogOpen(true);
+          }}
+          className="w-full md:w-auto text-xs md:text-sm"
+        >
+          <Key className="h-4 w-4 mr-2" />
+          Reset Password
+        </Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Reset password for {userName}</DialogTitle>
+          <DialogDescription>
+            Choose how to reset the password. User will be required to change it on next login.
+          </DialogDescription>
+        </DialogHeader>
+
+        <div className="space-y-4">
+          <RadioGroup value={resetPasswordMode} onValueChange={(val) => setResetPasswordMode(val as "auto" | "manual")}>
+            <div className="flex items-center space-x-2">
+              <RadioGroupItem value="auto" id={`auto-gen-${userId}`} />
+              <label htmlFor={`auto-gen-${userId}`} className="cursor-pointer font-medium text-sm">
+                Auto-generate temporary password
+              </label>
+            </div>
+            <p className="text-xs text-muted-foreground ml-6">A secure random password will be generated</p>
+
+            <div className="flex items-center space-x-2 mt-4">
+              <RadioGroupItem value="manual" id={`manual-set-${userId}`} />
+              <label htmlFor={`manual-set-${userId}`} className="cursor-pointer font-medium text-sm">
+                Set new password manually
+              </label>
+            </div>
+            {resetPasswordMode === "manual" && (
+              <div className="ml-6 mt-2">
+                <Input
+                  type="password"
+                  placeholder="Minimum 6 characters"
+                  value={manualPassword}
+                  onChange={(e) => setManualPassword(e.target.value)}
+                  className="text-sm"
+                />
+                {manualPassword && manualPassword.length < 6 && (
+                  <p className="text-xs text-destructive mt-1">Password must be at least 6 characters</p>
+                )}
+              </div>
+            )}
+          </RadioGroup>
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => setResetPasswordMode("auto")}>
+            Cancel
+          </Button>
+          <Button
+            onClick={() => {
+              if (resetPasswordMode === "manual" && manualPassword.length < 6) {
+                toast({
+                  title: "Invalid password",
+                  description: "Password must be at least 6 characters",
+                  variant: "destructive",
+                });
+                return;
+              }
+              setResetPasswordUserId(userId);
+              setResetPasswordUserName(userName);
+              setResetPasswordDialogOpen(false);
+              resetPasswordMutation.mutate(userId);
+            }}
+            disabled={resetPasswordMutation.isPending || (resetPasswordMode === "manual" && manualPassword.length < 6)}
+          >
+            {resetPasswordMutation.isPending ? "Resetting..." : "Reset Password"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+
   return (
     <div className="space-y-6">
-      <div className="flex justify-between items-start gap-4">
+      <div className="flex flex-col md:flex-row md:justify-between md:items-start gap-4">
         <div>
           <h1 className="text-3xl font-semibold">Team Management</h1>
           <p className="text-muted-foreground mt-2">Curator-only user administration</p>
         </div>
-        <Button onClick={() => { form.reset(); setIsDialogOpen(true); }} data-testid="button-new-user">
+        <Button onClick={() => { form.reset(); setIsDialogOpen(true); }} data-testid="button-new-user" className="w-full md:w-auto">
           <UserPlus className="h-4 w-4 mr-2" />
           Add Team Member
         </Button>
@@ -268,253 +357,327 @@ export default function CuratorUsersPage() {
               ) : (usersQuery.data || []).filter((u) => u.isActive).length === 0 ? (
                 <p className="text-sm text-muted-foreground">No active users</p>
               ) : (
-                <Table>
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Name</TableHead>
-                  <TableHead>Email</TableHead>
-                  <TableHead>Role</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Created</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {(usersQuery.data || [])
-                  .filter((u) => u.isActive)
-                  .map((u) => {
-                    const isSelf = u.id === user?.id;
-                    return (
-                    <TableRow key={u.id}>
-                      <TableCell className="font-medium">{u.name}</TableCell>
-                      <TableCell className="font-mono text-xs">{u.email}</TableCell>
-                      <TableCell>
-                        <Badge variant={u.isMasterCurator ? "default" : u.role === "CURATOR" ? "default" : "secondary"}>
-                          {u.isMasterCurator ? "Superadmin" : u.role === "CURATOR" ? "Editor" : "Viewer"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant={u.isActive ? "default" : "secondary"}>
-                          {u.isActive ? "Active" : "Archived"}
-                        </Badge>
-                      </TableCell>
-                      <TableCell className="text-sm text-muted-foreground">
-                        {u.createdAt ? new Date(u.createdAt).toLocaleString() : ""}
-                      </TableCell>
-                      <TableCell className="text-right space-x-2">
-                        {user?.isMasterCurator === true && (
-                          <>
-                            <Dialog open={resetPasswordDialogOpen && resetPasswordUserId === u.id} onOpenChange={setResetPasswordDialogOpen}>
-                              <DialogTrigger asChild>
-                                <Button
-                                  variant="outline"
-                                  size="sm"
-                                  disabled={resetPasswordMutation.isPending}
-                                  title="Reset password"
-                                  data-testid={`button-reset-password-${u.id}`}
-                                  onClick={() => {
-                                    setResetPasswordUserId(u.id);
-                                    setResetPasswordUserName(u.name);
-                                    setResetPasswordDialogOpen(true);
-                                  }}
-                                >
-                                  <Key className="h-4 w-4 mr-2" />
-                                  Reset Password
-                                </Button>
-                              </DialogTrigger>
-                              <DialogContent>
-                                <DialogHeader>
-                                  <DialogTitle>Reset password for {u.name}</DialogTitle>
-                                  <DialogDescription>
-                                    Choose how to reset the password. User will be required to change it on next login.
-                                  </DialogDescription>
-                                </DialogHeader>
+                <>
+                  {/* Desktop Table */}
+                  <div className="hidden md:block">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Name</TableHead>
+                          <TableHead>Email</TableHead>
+                          <TableHead>Role</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Created</TableHead>
+                          <TableHead className="text-right">Actions</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {(usersQuery.data || [])
+                          .filter((u) => u.isActive)
+                          .map((u) => {
+                            const isSelf = u.id === user?.id;
+                            return (
+                              <TableRow key={u.id}>
+                                <TableCell className="font-medium">{u.name}</TableCell>
+                                <TableCell className="font-mono text-xs">{u.email}</TableCell>
+                                <TableCell>
+                                  <Badge variant={u.isMasterCurator ? "default" : u.role === "CURATOR" ? "default" : "secondary"}>
+                                    {u.isMasterCurator ? "Superadmin" : u.role === "CURATOR" ? "Editor" : "Viewer"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell>
+                                  <Badge variant={u.isActive ? "default" : "secondary"}>
+                                    {u.isActive ? "Active" : "Archived"}
+                                  </Badge>
+                                </TableCell>
+                                <TableCell className="text-sm text-muted-foreground">
+                                  {u.createdAt ? new Date(u.createdAt).toLocaleString() : ""}
+                                </TableCell>
+                                <TableCell className="text-right space-x-2">
+                                  {user?.isMasterCurator === true && (
+                                    <>
+                                      <ResetPasswordDialog userId={u.id} userName={u.name} />
 
-                                <div className="space-y-4">
-                                  <RadioGroup value={resetPasswordMode} onValueChange={(val) => setResetPasswordMode(val as "auto" | "manual")}>
-                                    <div className="flex items-center space-x-2">
-                                      <RadioGroupItem value="auto" id="auto-gen" />
-                                      <label htmlFor="auto-gen" className="cursor-pointer font-medium text-sm">
-                                        Auto-generate temporary password
-                                      </label>
-                                    </div>
-                                    <p className="text-xs text-muted-foreground ml-6">A secure random password will be generated</p>
+                                      {u.isActive ? (
+                                        <>
+                                          <Dialog open={editRoleDialogOpen && editRoleUserId === u.id} onOpenChange={setEditRoleDialogOpen}>
+                                            <DialogTrigger asChild>
+                                              <Button
+                                                variant="outline"
+                                                size="sm"
+                                                title="Edit role"
+                                                onClick={() => {
+                                                  setEditRoleUserId(u.id);
+                                                  setEditRoleUserName(u.name);
+                                                  setEditRoleValue(u.role as "ADMIN" | "CURATOR");
+                                                }}
+                                              >
+                                                <Edit2 className="h-4 w-4 mr-2" />
+                                                Edit Role
+                                              </Button>
+                                            </DialogTrigger>
+                                            <DialogContent>
+                                              <DialogHeader>
+                                                <DialogTitle>Edit role for {editRoleUserName}</DialogTitle>
+                                                <DialogDescription>
+                                                  Change the user role. This determines their permissions in the system.
+                                                </DialogDescription>
+                                              </DialogHeader>
+                                              <div className="space-y-4">
+                                                <Select value={editRoleValue} onValueChange={(val) => setEditRoleValue(val as "ADMIN" | "CURATOR")}>
+                                                  <SelectTrigger>
+                                                    <SelectValue />
+                                                  </SelectTrigger>
+                                                  <SelectContent>
+                                                    <SelectItem value="ADMIN">Viewer (Read-only)</SelectItem>
+                                                    <SelectItem value="CURATOR">Editor (Create/Edit)</SelectItem>
+                                                  </SelectContent>
+                                                </Select>
+                                              </div>
+                                              <DialogFooter>
+                                                <Button type="button" variant="outline" onClick={() => setEditRoleDialogOpen(false)}>
+                                                  Cancel
+                                                </Button>
+                                                <Button
+                                                  onClick={() => {
+                                                    if (editRoleUserId) {
+                                                      updateRoleMutation.mutate({ userId: editRoleUserId, role: editRoleValue });
+                                                    }
+                                                  }}
+                                                  disabled={updateRoleMutation.isPending}
+                                                >
+                                                  {updateRoleMutation.isPending ? "Updating..." : "Update Role"}
+                                                </Button>
+                                              </DialogFooter>
+                                            </DialogContent>
+                                          </Dialog>
 
-                                    <div className="flex items-center space-x-2 mt-4">
-                                      <RadioGroupItem value="manual" id="manual-set" />
-                                      <label htmlFor="manual-set" className="cursor-pointer font-medium text-sm">
-                                        Set new password manually
-                                      </label>
-                                    </div>
-                                    {resetPasswordMode === "manual" && (
-                                      <div className="ml-6 mt-2">
-                                        <Input
-                                          type="password"
-                                          placeholder="Minimum 6 characters"
-                                          value={manualPassword}
-                                          onChange={(e) => setManualPassword(e.target.value)}
-                                          className="text-sm"
-                                        />
-                                        {manualPassword && manualPassword.length < 6 && (
-                                          <p className="text-xs text-destructive mt-1">Password must be at least 6 characters</p>
-                                        )}
-                                      </div>
-                                    )}
-                                  </RadioGroup>
+                                          <AlertDialog>
+                                            <AlertDialogTrigger asChild>
+                                              <Button
+                                                variant="destructive"
+                                                size="sm"
+                                                disabled={isSelf || archiveMutation.isPending}
+                                                title={isSelf ? "You cannot archive yourself" : "Archive user"}
+                                                data-testid={`button-archive-user-${u.id}`}
+                                              >
+                                                <Trash2 className="h-4 w-4 mr-2" />
+                                                Archive
+                                              </Button>
+                                            </AlertDialogTrigger>
+                                            <AlertDialogContent>
+                                              <AlertDialogHeader>
+                                                <AlertDialogTitle>Archive this user?</AlertDialogTitle>
+                                                <AlertDialogDescription>
+                                                  This will archive the user <span className="font-mono">{u.email}</span>. They can be reactivated later.
+                                                </AlertDialogDescription>
+                                              </AlertDialogHeader>
+                                              <AlertDialogFooter>
+                                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                                <AlertDialogAction
+                                                  className="bg-destructive text-destructive-foreground border border-destructive-border"
+                                                  onClick={() => archiveMutation.mutate(u.id)}
+                                                >
+                                                  Archive
+                                                </AlertDialogAction>
+                                              </AlertDialogFooter>
+                                            </AlertDialogContent>
+                                          </AlertDialog>
+                                        </>
+                                      ) : (
+                                        <AlertDialog>
+                                          <AlertDialogTrigger asChild>
+                                            <Button
+                                              variant="outline"
+                                              size="sm"
+                                              disabled={reactivateMutation.isPending}
+                                              title="Reactivate user"
+                                              data-testid={`button-reactivate-user-${u.id}`}
+                                            >
+                                              Reactivate
+                                            </Button>
+                                          </AlertDialogTrigger>
+                                          <AlertDialogContent>
+                                            <AlertDialogHeader>
+                                              <AlertDialogTitle>Reactivate this user?</AlertDialogTitle>
+                                              <AlertDialogDescription>
+                                                The user <span className="font-mono">{u.email}</span> will be reactivated and can log in again.
+                                              </AlertDialogDescription>
+                                            </AlertDialogHeader>
+                                            <AlertDialogFooter>
+                                              <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                              <AlertDialogAction
+                                                onClick={() => reactivateMutation.mutate(u.id)}
+                                              >
+                                                Reactivate
+                                              </AlertDialogAction>
+                                            </AlertDialogFooter>
+                                          </AlertDialogContent>
+                                        </AlertDialog>
+                                      )}
+                                    </>
+                                  )}
+                                </TableCell>
+                              </TableRow>
+                            );
+                          })}
+                      </TableBody>
+                    </Table>
+                  </div>
+
+                  {/* Mobile Cards */}
+                  <div className="md:hidden space-y-3">
+                    {(usersQuery.data || [])
+                      .filter((u) => u.isActive)
+                      .map((u) => {
+                        const isSelf = u.id === user?.id;
+                        return (
+                          <Card key={u.id}>
+                            <CardContent className="pt-6 pb-4 space-y-3">
+                              <div>
+                                <p className="font-semibold text-base">{u.name}</p>
+                                <p className="text-xs font-mono text-muted-foreground">{u.email}</p>
+                              </div>
+                              <div className="flex flex-wrap gap-2">
+                                <Badge variant={u.isMasterCurator ? "default" : u.role === "CURATOR" ? "default" : "secondary"} className="text-xs">
+                                  {u.isMasterCurator ? "Superadmin" : u.role === "CURATOR" ? "Editor" : "Viewer"}
+                                </Badge>
+                                <Badge variant="default" className="text-xs">
+                                  Active
+                                </Badge>
+                              </div>
+                              <p className="text-xs text-muted-foreground">
+                                Created {u.createdAt ? new Date(u.createdAt).toLocaleDateString() : "N/A"}
+                              </p>
+                              {user?.isMasterCurator === true && (
+                                <div className="flex flex-col gap-2 pt-2">
+                                  <ResetPasswordDialog userId={u.id} userName={u.name} />
+
+                                  {u.isActive ? (
+                                    <>
+                                      <Dialog open={editRoleDialogOpen && editRoleUserId === u.id} onOpenChange={setEditRoleDialogOpen}>
+                                        <DialogTrigger asChild>
+                                          <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="w-full text-xs"
+                                            onClick={() => {
+                                              setEditRoleUserId(u.id);
+                                              setEditRoleUserName(u.name);
+                                              setEditRoleValue(u.role as "ADMIN" | "CURATOR");
+                                            }}
+                                          >
+                                            <Edit2 className="h-3 w-3 mr-1" />
+                                            Edit Role
+                                          </Button>
+                                        </DialogTrigger>
+                                        <DialogContent>
+                                          <DialogHeader>
+                                            <DialogTitle>Edit role for {editRoleUserName}</DialogTitle>
+                                            <DialogDescription>
+                                              Change the user role. This determines their permissions in the system.
+                                            </DialogDescription>
+                                          </DialogHeader>
+                                          <div className="space-y-4">
+                                            <Select value={editRoleValue} onValueChange={(val) => setEditRoleValue(val as "ADMIN" | "CURATOR")}>
+                                              <SelectTrigger>
+                                                <SelectValue />
+                                              </SelectTrigger>
+                                              <SelectContent>
+                                                <SelectItem value="ADMIN">Viewer (Read-only)</SelectItem>
+                                                <SelectItem value="CURATOR">Editor (Create/Edit)</SelectItem>
+                                              </SelectContent>
+                                            </Select>
+                                          </div>
+                                          <DialogFooter>
+                                            <Button type="button" variant="outline" onClick={() => setEditRoleDialogOpen(false)}>
+                                              Cancel
+                                            </Button>
+                                            <Button
+                                              onClick={() => {
+                                                if (editRoleUserId) {
+                                                  updateRoleMutation.mutate({ userId: editRoleUserId, role: editRoleValue });
+                                                }
+                                              }}
+                                              disabled={updateRoleMutation.isPending}
+                                            >
+                                              {updateRoleMutation.isPending ? "Updating..." : "Update Role"}
+                                            </Button>
+                                          </DialogFooter>
+                                        </DialogContent>
+                                      </Dialog>
+
+                                      <AlertDialog>
+                                        <AlertDialogTrigger asChild>
+                                          <Button
+                                            variant="destructive"
+                                            size="sm"
+                                            className="w-full text-xs"
+                                            disabled={isSelf || archiveMutation.isPending}
+                                            data-testid={`button-archive-user-${u.id}`}
+                                          >
+                                            <Trash2 className="h-3 w-3 mr-1" />
+                                            Archive
+                                          </Button>
+                                        </AlertDialogTrigger>
+                                        <AlertDialogContent>
+                                          <AlertDialogHeader>
+                                            <AlertDialogTitle>Archive this user?</AlertDialogTitle>
+                                            <AlertDialogDescription>
+                                              This will archive the user <span className="font-mono">{u.email}</span>. They can be reactivated later.
+                                            </AlertDialogDescription>
+                                          </AlertDialogHeader>
+                                          <AlertDialogFooter>
+                                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                            <AlertDialogAction
+                                              className="bg-destructive text-destructive-foreground border border-destructive-border"
+                                              onClick={() => archiveMutation.mutate(u.id)}
+                                            >
+                                              Archive
+                                            </AlertDialogAction>
+                                          </AlertDialogFooter>
+                                        </AlertDialogContent>
+                                      </AlertDialog>
+                                    </>
+                                  ) : (
+                                    <AlertDialog>
+                                      <AlertDialogTrigger asChild>
+                                        <Button
+                                          variant="outline"
+                                          size="sm"
+                                          className="w-full text-xs"
+                                          disabled={reactivateMutation.isPending}
+                                          data-testid={`button-reactivate-user-${u.id}`}
+                                        >
+                                          Reactivate
+                                        </Button>
+                                      </AlertDialogTrigger>
+                                      <AlertDialogContent>
+                                        <AlertDialogHeader>
+                                          <AlertDialogTitle>Reactivate this user?</AlertDialogTitle>
+                                          <AlertDialogDescription>
+                                            The user <span className="font-mono">{u.email}</span> will be reactivated and can log in again.
+                                          </AlertDialogDescription>
+                                        </AlertDialogHeader>
+                                        <AlertDialogFooter>
+                                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                          <AlertDialogAction
+                                            onClick={() => reactivateMutation.mutate(u.id)}
+                                          >
+                                            Reactivate
+                                          </AlertDialogAction>
+                                        </AlertDialogFooter>
+                                      </AlertDialogContent>
+                                    </AlertDialog>
+                                  )}
                                 </div>
-
-                                <DialogFooter>
-                                  <Button type="button" variant="outline" onClick={() => setResetPasswordMode("auto")}>
-                                    Cancel
-                                  </Button>
-                                  <Button
-                                    onClick={() => {
-                                      if (resetPasswordMode === "manual" && manualPassword.length < 6) {
-                                        toast({
-                                          title: "Invalid password",
-                                          description: "Password must be at least 6 characters",
-                                          variant: "destructive",
-                                        });
-                                        return;
-                                      }
-                                      setResetPasswordUserId(u.id);
-                                      setResetPasswordUserName(u.name);
-                                      setResetPasswordDialogOpen(false);
-                                      resetPasswordMutation.mutate(u.id);
-                                    }}
-                                    disabled={resetPasswordMutation.isPending || (resetPasswordMode === "manual" && manualPassword.length < 6)}
-                                  >
-                                    {resetPasswordMutation.isPending ? "Resetting..." : "Reset Password"}
-                                  </Button>
-                                </DialogFooter>
-                              </DialogContent>
-                            </Dialog>
-
-                            {u.isActive ? (
-                              <>
-                                <Dialog open={editRoleDialogOpen && editRoleUserId === u.id} onOpenChange={setEditRoleDialogOpen}>
-                                  <DialogTrigger asChild>
-                                    <Button
-                                      variant="outline"
-                                      size="sm"
-                                      title="Edit role"
-                                      onClick={() => {
-                                        setEditRoleUserId(u.id);
-                                        setEditRoleUserName(u.name);
-                                        setEditRoleValue(u.role as "ADMIN" | "CURATOR");
-                                      }}
-                                    >
-                                      <Edit2 className="h-4 w-4 mr-2" />
-                                      Edit Role
-                                    </Button>
-                                  </DialogTrigger>
-                                  <DialogContent>
-                                    <DialogHeader>
-                                      <DialogTitle>Edit role for {editRoleUserName}</DialogTitle>
-                                      <DialogDescription>
-                                        Change the user role. This determines their permissions in the system.
-                                      </DialogDescription>
-                                    </DialogHeader>
-                                    <div className="space-y-4">
-                                      <Select value={editRoleValue} onValueChange={(val) => setEditRoleValue(val as "ADMIN" | "CURATOR")}>
-                                        <SelectTrigger>
-                                          <SelectValue />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                          <SelectItem value="ADMIN">Viewer (Read-only)</SelectItem>
-                                          <SelectItem value="CURATOR">Editor (Create/Edit)</SelectItem>
-                                        </SelectContent>
-                                      </Select>
-                                    </div>
-                                    <DialogFooter>
-                                      <Button type="button" variant="outline" onClick={() => setEditRoleDialogOpen(false)}>
-                                        Cancel
-                                      </Button>
-                                      <Button
-                                        onClick={() => {
-                                          if (editRoleUserId) {
-                                            updateRoleMutation.mutate({ userId: editRoleUserId, role: editRoleValue });
-                                          }
-                                        }}
-                                        disabled={updateRoleMutation.isPending}
-                                      >
-                                        {updateRoleMutation.isPending ? "Updating..." : "Update Role"}
-                                      </Button>
-                                    </DialogFooter>
-                                  </DialogContent>
-                                </Dialog>
-
-                                <AlertDialog>
-                                  <AlertDialogTrigger asChild>
-                                    <Button
-                                      variant="destructive"
-                                      size="sm"
-                                      disabled={isSelf || archiveMutation.isPending}
-                                      title={isSelf ? "You cannot archive yourself" : "Archive user"}
-                                      data-testid={`button-archive-user-${u.id}`}
-                                    >
-                                      <Trash2 className="h-4 w-4 mr-2" />
-                                      Archive
-                                    </Button>
-                                  </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Archive this user?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      This will archive the user <span className="font-mono">{u.email}</span>. They can be reactivated later.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction
-                                      className="bg-destructive text-destructive-foreground border border-destructive-border"
-                                      onClick={() => archiveMutation.mutate(u.id)}
-                                    >
-                                      Archive
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                              </>
-                            ) : (
-                              <AlertDialog>
-                                <AlertDialogTrigger asChild>
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    disabled={reactivateMutation.isPending}
-                                    title="Reactivate user"
-                                    data-testid={`button-reactivate-user-${u.id}`}
-                                  >
-                                    Reactivate
-                                  </Button>
-                                </AlertDialogTrigger>
-                                <AlertDialogContent>
-                                  <AlertDialogHeader>
-                                    <AlertDialogTitle>Reactivate this user?</AlertDialogTitle>
-                                    <AlertDialogDescription>
-                                      The user <span className="font-mono">{u.email}</span> will be reactivated and can log in again.
-                                    </AlertDialogDescription>
-                                  </AlertDialogHeader>
-                                  <AlertDialogFooter>
-                                    <AlertDialogCancel>Cancel</AlertDialogCancel>
-                                    <AlertDialogAction
-                                      onClick={() => reactivateMutation.mutate(u.id)}
-                                    >
-                                      Reactivate
-                                    </AlertDialogAction>
-                                  </AlertDialogFooter>
-                                </AlertDialogContent>
-                              </AlertDialog>
-                            )}
-                          </>
-                        )}
-                      </TableCell>
-                    </TableRow>
-                  );
-                })}
-              </TableBody>
-                </Table>
+                              )}
+                            </CardContent>
+                          </Card>
+                        );
+                      })}
+                  </div>
+                </>
               )}
             </TabsContent>
 

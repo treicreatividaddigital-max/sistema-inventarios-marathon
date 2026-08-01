@@ -99,7 +99,7 @@ export default function SearchPage() {
     setCurrentPage(1);
   }, [debouncedSearchQuery, filters]);
 
-  // Update URL when search params change
+  // Update URL when search params change (replace to avoid polluting browser history)
   useEffect(() => {
     const params = new URLSearchParams();
     if (debouncedSearchQuery) params.set("q", debouncedSearchQuery);
@@ -109,10 +109,8 @@ export default function SearchPage() {
     if (currentPage > 1) params.set("page", String(currentPage));
 
     const newUrl = params.toString() ? `/search?${params.toString()}` : "/search";
-    if (newUrl !== `${_location}${typeof window !== "undefined" ? window.location.search : ""}`) {
-      setLocation(newUrl);
-    }
-  }, [debouncedSearchQuery, filters, currentPage, setLocation, _location]);
+    setLocation(newUrl, { replace: true });
+  }, [debouncedSearchQuery, filters, currentPage, setLocation]);
 
   const offset = (currentPage - 1) * PAGE_SIZE;
 

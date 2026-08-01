@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { ArrowLeft, FilterX, Printer, QrCode, RefreshCcw } from "lucide-react";
+import { ArrowLeft, ChevronDown, FilterX, Printer, QrCode, RefreshCcw } from "lucide-react";
 import { Link } from "wouter";
 import { QRCodeSVG } from "qrcode.react";
 import { Button } from "@/components/ui/button";
@@ -11,6 +11,17 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { ThermalLabelPreview } from "@/components/thermal-label-preview";
@@ -147,6 +158,8 @@ function PrintSettingsCard({
   onBrowserPrint: () => void;
   isPrintingThermal: boolean;
 }) {
+  const [isAdvancedOpen, setIsAdvancedOpen] = useState(false);
+
   return (
     <Card>
       <CardHeader>
@@ -185,22 +198,36 @@ function PrintSettingsCard({
           )}
         </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2"><PrintSettingLabel help="TSPL suele ser la mejor opción para etiquetas térmicas compactas.">Lenguaje</PrintSettingLabel><Select value={language} onValueChange={(value) => setLanguage(value as ThermalLanguage)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="tspl">TSPL</SelectItem><SelectItem value="zpl">ZPL</SelectItem></SelectContent></Select></div>
-          <div className="space-y-2"><PrintSettingLabel help="Aplica proporciones listas para 40x25 o 50x30 sin recalibrar a mano desde cero.">Preset</PrintSettingLabel><Select value={presetKey} onValueChange={applyPreset}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{THERMAL_LABEL_PRESETS.map((preset) => (<SelectItem key={preset.key} value={preset.key}>{preset.label}</SelectItem>))}<SelectItem value="custom">Custom</SelectItem></SelectContent></Select></div>
-        </div>
+        <Collapsible open={isAdvancedOpen} onOpenChange={setIsAdvancedOpen}>
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between rounded-md border border-dashed p-3 text-sm font-medium text-muted-foreground hover:bg-muted/40"
+            >
+              Configuración avanzada
+              <ChevronDown className={`h-4 w-4 transition-transform ${isAdvancedOpen ? "rotate-180" : ""}`} />
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent className="space-y-4 pt-4">
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2"><PrintSettingLabel help="TSPL suele ser la mejor opción para etiquetas térmicas compactas.">Lenguaje</PrintSettingLabel><Select value={language} onValueChange={(value) => setLanguage(value as ThermalLanguage)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="tspl">TSPL</SelectItem><SelectItem value="zpl">ZPL</SelectItem></SelectContent></Select></div>
+              <div className="space-y-2"><PrintSettingLabel help="Aplica proporciones listas para 40x25 o 50x30 sin recalibrar a mano desde cero.">Preset</PrintSettingLabel><Select value={presetKey} onValueChange={applyPreset}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{THERMAL_LABEL_PRESETS.map((preset) => (<SelectItem key={preset.key} value={preset.key}>{preset.label}</SelectItem>))}<SelectItem value="custom">Custom</SelectItem></SelectContent></Select></div>
+            </div>
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <div className="space-y-2"><PrintSettingLabel help="Mueve todo el texto horizontalmente sin alterar el tamaño de la etiqueta.">Offset texto X (dots)</PrintSettingLabel><Input type="number" value={settings.textOffsetX} onChange={(e) => setSettings((prev) => ({ ...prev, textOffsetX: Number(e.target.value) || 0 }))} /></div>
-          <div className="space-y-2"><PrintSettingLabel help="Mueve todo el texto verticalmente sin afectar el QR.">Offset texto Y (dots)</PrintSettingLabel><Input type="number" value={settings.textOffsetY} onChange={(e) => setSettings((prev) => ({ ...prev, textOffsetY: Number(e.target.value) || 0 }))} /></div>
-          <div className="space-y-2"><PrintSettingLabel help="Mueve solo el QR horizontalmente, sin afectar los textos.">Offset QR X (dots)</PrintSettingLabel><Input type="number" value={settings.qrOffsetX} onChange={(e) => setSettings((prev) => ({ ...prev, qrOffsetX: Number(e.target.value) || 0 }))} /></div>
-          <div className="space-y-2"><PrintSettingLabel help="Mueve solo el QR verticalmente, sin afectar los textos.">Offset QR Y (dots)</PrintSettingLabel><Input type="number" value={settings.qrOffsetY} onChange={(e) => setSettings((prev) => ({ ...prev, qrOffsetY: Number(e.target.value) || 0 }))} /></div>
-        </div>
+            <div className="grid gap-4 md:grid-cols-2">
+              <div className="space-y-2"><PrintSettingLabel help="Mueve todo el texto horizontalmente sin alterar el tamaño de la etiqueta.">Offset texto X (dots)</PrintSettingLabel><Input type="number" value={settings.textOffsetX} onChange={(e) => setSettings((prev) => ({ ...prev, textOffsetX: Number(e.target.value) || 0 }))} /></div>
+              <div className="space-y-2"><PrintSettingLabel help="Mueve todo el texto verticalmente sin afectar el QR.">Offset texto Y (dots)</PrintSettingLabel><Input type="number" value={settings.textOffsetY} onChange={(e) => setSettings((prev) => ({ ...prev, textOffsetY: Number(e.target.value) || 0 }))} /></div>
+              <div className="space-y-2"><PrintSettingLabel help="Mueve solo el QR horizontalmente, sin afectar los textos.">Offset QR X (dots)</PrintSettingLabel><Input type="number" value={settings.qrOffsetX} onChange={(e) => setSettings((prev) => ({ ...prev, qrOffsetX: Number(e.target.value) || 0 }))} /></div>
+              <div className="space-y-2"><PrintSettingLabel help="Mueve solo el QR verticalmente, sin afectar los textos.">Offset QR Y (dots)</PrintSettingLabel><Input type="number" value={settings.qrOffsetY} onChange={(e) => setSettings((prev) => ({ ...prev, qrOffsetY: Number(e.target.value) || 0 }))} /></div>
+            </div>
 
-        <div className="space-y-2"><PrintSettingLabel help="Texto superior opcional. Cuando está activo, el motor recalcula el espacio para no montar el QR sobre el título.">Título</PrintSettingLabel><Input value={settings.title} onChange={(e) => setSettings((prev) => ({ ...prev, title: e.target.value }))} /></div>
-        <div className="space-y-2"><PrintSettingLabel help="El QR puede contener solo el código o la URL completa del item.">Contenido del QR</PrintSettingLabel><Select value={qrMode} onValueChange={(value) => setQrMode(value as QrPayloadMode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="code">Solo código</SelectItem><SelectItem value="url">URL</SelectItem></SelectContent></Select></div>
-        <div className="flex items-center justify-between rounded-md border p-3"><div><p className="font-medium">Mostrar título</p><p className="text-xs text-muted-foreground">Encabezado superior.</p></div><Switch checked={settings.showTitle} onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, showTitle: checked }))} /></div>
-        <div className="flex items-center justify-between rounded-md border p-3"><div><p className="font-medium">Incluir QR</p><p className="text-xs text-muted-foreground">Déjalo apagado si necesitas máxima compatibilidad.</p></div><Switch checked={settings.includeQr} onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, includeQr: checked }))} /></div>
+            <div className="space-y-2"><PrintSettingLabel help="Texto superior opcional. Cuando está activo, el motor recalcula el espacio para no montar el QR sobre el título.">Título</PrintSettingLabel><Input value={settings.title} onChange={(e) => setSettings((prev) => ({ ...prev, title: e.target.value }))} /></div>
+            <div className="space-y-2"><PrintSettingLabel help="El QR puede contener solo el código o la URL completa del item.">Contenido del QR</PrintSettingLabel><Select value={qrMode} onValueChange={(value) => setQrMode(value as QrPayloadMode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="code">Solo código</SelectItem><SelectItem value="url">URL</SelectItem></SelectContent></Select></div>
+            <div className="flex items-center justify-between rounded-md border p-3"><div><p className="font-medium">Mostrar título</p><p className="text-xs text-muted-foreground">Encabezado superior.</p></div><Switch checked={settings.showTitle} onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, showTitle: checked }))} /></div>
+            <div className="flex items-center justify-between rounded-md border p-3"><div><p className="font-medium">Incluir QR</p><p className="text-xs text-muted-foreground">Déjalo apagado si necesitas máxima compatibilidad.</p></div><Switch checked={settings.includeQr} onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, includeQr: checked }))} /></div>
+          </CollapsibleContent>
+        </Collapsible>
+
         <div className="flex flex-col gap-2">
           <Button onClick={onThermalPrint} disabled={!selectedLabelsLength || isPrintingThermal}><Printer className="mr-2 h-4 w-4" />{isPrintingThermal ? "Enviando..." : `Imprimir térmica (${selectedLabelsLength})`}</Button>
           <Button variant="outline" onClick={onBrowserPrint}>Imprimir navegador</Button>
@@ -232,6 +259,7 @@ export default function CuratorPrintQRsPage() {
   const [printerIssueMessage, setPrinterIssueMessage] = useState("");
   const [printerDialogMode, setPrinterDialogMode] = useState<PrinterIssueDialogMode>("manual-help");
   const [isTestingPrinter, setIsTestingPrinter] = useState(false);
+  const [isConfirmPrintOpen, setIsConfirmPrintOpen] = useState(false);
   const { toast } = useToast();
 
   const { data: racks = [], isLoading: racksLoading } = useQuery<Rack[]>({ queryKey: ["/api/racks"] });
@@ -242,6 +270,7 @@ export default function CuratorPrintQRsPage() {
 
   const garments = garmentsSearch?.items ?? [];
   const selectedRackMeta = racks.find((rack) => rack.id === selectedRackFilter);
+  const isOverBatchLimit = (garmentsSearch?.total ?? 0) > GARMENT_BATCH_LIMIT;
 
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -403,6 +432,16 @@ export default function CuratorPrintQRsPage() {
     }
   };
 
+  const handleRequestPrint = () => {
+    if (!selectedLabels.length) return;
+    setIsConfirmPrintOpen(true);
+  };
+
+  const confirmAndPrint = async () => {
+    setIsConfirmPrintOpen(false);
+    await handleThermalPrint();
+  };
+
   const handleTestPrint = async () => {
     const snapshot = await syncPrinterState({ silent: true });
     if (!snapshot?.connected || !snapshot.selectedPrinter.trim()) {
@@ -454,7 +493,7 @@ export default function CuratorPrintQRsPage() {
       onHelp={handleOpenPrinterHelp}
       isDetectingPrinter={isDetectingPrinter}
       selectedLabelsLength={selectedLabels.length}
-      onThermalPrint={handleThermalPrint}
+      onThermalPrint={handleRequestPrint}
       onBrowserPrint={handleBrowserPrint}
       isPrintingThermal={isPrintingThermal}
     />
@@ -492,6 +531,21 @@ export default function CuratorPrintQRsPage() {
         isTesting={isTestingPrinter}
       />
 
+      <AlertDialog open={isConfirmPrintOpen} onOpenChange={setIsConfirmPrintOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Imprimir {selectedLabels.length} etiqueta{selectedLabels.length === 1 ? "" : "s"}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se enviarán a {printerSnapshot?.selectedPrinter || printerName || "la impresora seleccionada"}. Esta acción no se puede deshacer una vez que la impresora las reciba.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void confirmAndPrint()}>Imprimir</AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
       <div className="no-print space-y-6 overflow-x-hidden">
         <div className="flex items-center gap-4">
           <Link href="/curator"><Button variant="ghost" size="icon"><ArrowLeft className="h-5 w-5" /></Button></Link>
@@ -508,6 +562,21 @@ export default function CuratorPrintQRsPage() {
           onHelp={handleOpenPrinterHelp}
           isDetecting={isDetectingPrinter}
         />
+
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border bg-primary/5 px-4 py-3">
+          <div className="text-sm">
+            <span className="font-medium">{selectedGarments.length}</span> prenda(s) + <span className="font-medium">{selectedRacks.length}</span> rack(s) seleccionados
+            {isOverBatchLimit && (
+              <span className="mt-1 block text-xs text-muted-foreground">
+                {GARMENT_BATCH_LIMIT} de {garmentsSearch?.total ?? 0} resultados disponibles para seleccionar — usa la búsqueda para acotar.
+              </span>
+            )}
+          </div>
+          <Button onClick={handleRequestPrint} disabled={!selectedLabels.length || isPrintingThermal}>
+            <Printer className="mr-2 h-4 w-4" />
+            {isPrintingThermal ? "Enviando..." : `Imprimir (${selectedLabels.length})`}
+          </Button>
+        </div>
 
         <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
           <div className={isMobile ? "order-2" : "order-1"}>{!isMobile ? printSettingsCard : null}</div>
@@ -563,6 +632,11 @@ export default function CuratorPrintQRsPage() {
                       <Badge variant="outline">Visible garments: {garmentsSearch?.total ?? garments.length}</Badge>
                       <Badge variant="outline">Selected: {selectedGarments.length}</Badge>
                     </div>
+                    {isOverBatchLimit && (
+                      <p className="text-xs text-muted-foreground">
+                        "Select visible" solo selecciona los primeros {GARMENT_BATCH_LIMIT} de {garmentsSearch?.total ?? 0} resultados. Acota la búsqueda o el filtro de rack para llegar a los demás.
+                      </p>
+                    )}
                   </CardContent>
                 </Card>
 

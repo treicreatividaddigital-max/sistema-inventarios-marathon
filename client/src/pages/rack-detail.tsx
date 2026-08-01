@@ -31,6 +31,7 @@ export default function RackDetailPage() {
 
   const { user } = useAuth();
   const isPublicView = !user;
+  const isReadOnly = user?.role === "ADMIN" || user?.role === "USER";
 
   const { data, isLoading, error } = useQuery<RackWithGarments>({
     queryKey: [isPublicView ? "/api/public/racks" : "/api/racks/by-code", rackCode],
@@ -274,16 +275,18 @@ export default function RackDetailPage() {
                   <QrCodeIcon className="h-4 w-4 mr-2" />
                   {isPrinting ? "Preparing print…" : "Print QR Code"}
                 </Button>
-                <Button
-                  className="w-full"
-                  variant="outline"
-                  data-testid="button-move-all"
-                  onClick={() => handleOpenMove(true)}
-                  disabled={garments.length === 0}
-                >
-                  <Package className="h-4 w-4 mr-2" />
-                  Move All Garments
-                </Button>
+                {!isReadOnly && (
+                  <Button
+                    className="w-full"
+                    variant="outline"
+                    data-testid="button-move-all"
+                    onClick={() => handleOpenMove(true)}
+                    disabled={garments.length === 0}
+                  >
+                    <Package className="h-4 w-4 mr-2" />
+                    Move All Garments
+                  </Button>
+                )}
               </CardContent>
             </Card>
           )}

@@ -426,5 +426,6 @@ export function describeQzError(error: unknown): string {
   if (/printer/i.test(message)) {
     return "No se ha podido encontrar tu impresora. Revisa que esté encendida y conectada, luego vuelve a intentar.";
   }
-  return message;
+  console.error("[QZ Tray] Error no reconocido:", message);
+  return "Ocurrió un problema con la conexión de impresión. Intenta reconectar QZ Tray o pide ayuda.";
 }

@@ -74,6 +74,7 @@ export interface IStorage {
   getAllUsers(): Promise<User[]>;
   archiveUser(id: string): Promise<boolean>;
   reactivateUser(id: string): Promise<boolean>;
+  updateUser(id: string, updates: Partial<InsertUser>): Promise<boolean>;
   deleteUser(id: string): Promise<boolean>;
 
   // Categories
@@ -261,6 +262,15 @@ export class DatabaseStorage implements IStorage {
     const result = await db
       .update(users)
       .set({ isActive: true })
+      .where(eq(users.id, id));
+
+    return result.rowCount !== null && result.rowCount > 0;
+  }
+
+  async updateUser(id: string, updates: Partial<InsertUser>): Promise<boolean> {
+    const result = await db
+      .update(users)
+      .set(updates)
       .where(eq(users.id, id));
 
     return result.rowCount !== null && result.rowCount > 0;

@@ -122,6 +122,18 @@ if (!JWT_SECRET_ENV) {
 const JWT_SECRET: string = JWT_SECRET_ENV;
 const SALT_ROUNDS = parseInt(process.env.BCRYPT_SALT_ROUNDS || "10", 10);
 
+// Generate secure random password (12+ chars: letters, numbers)
+const generateSecurePassword = (): string => {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789";
+  let password = "";
+  const array = new Uint8Array(16);
+  randomUUID(); // seed crypto
+  for (let i = 0; i < 16; i++) {
+    password += chars.charAt(Math.floor(Math.random() * chars.length));
+  }
+  return password;
+};
+
 // File upload configuration
 const GCS_BUCKET_NAME = process.env.GCS_BUCKET;
 const gcsBucket = GCS_BUCKET_NAME ? new GCSStorage().bucket(GCS_BUCKET_NAME) : null;
@@ -750,6 +762,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           email: user.email,
           name: user.name,
           role: user.role,
+          mustChangePassword: user.mustChangePassword || false,
         },
         token,
       });
@@ -906,6 +919,62 @@ export async function registerRoutes(app: Express): Promise<Server> {
       next(error);
     }
   });
+
+  app.patch("/api/users/:id/reset-password", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireMaster(req, res)) return;
+
+      const userId = req.params.id;
+      const user = await storage.getUser(userId);
+      if (!user) return res.sendStatus(404);
+
+      const tempPassword = generateSecurePassword();
+      const hashedPassword = await bcrypt.hash(tempPassword, SALT_ROUNDS);
+
+      await storage.updateUser(userId, {
+        passwordHash: hashedPassword,
+        mustChangePassword: true,
+      });
+
+      res.json({
+        id: user.id,
+        email: user.email,
+        tempPassword,
+        message: "Password reset. User must change on next login.",
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/users/me/change-password-forced", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!req.user) return res.sendStatus(401);
+
+      const { newPassword } = req.body as any;
+      if (!newPassword || typeof newPassword !== "string" || newPassword.length < 6) {
+        return res.status(400).json({
+          statusCode: 400,
+          message: "New password must be at least 6 characters",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
+      await storage.updateUser(req.user.id, {
+        passwordHash: hashedPassword,
+        mustChangePassword: false,
+      });
+
+      res.json({
+        id: req.user.id,
+        message: "Password changed successfully",
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
   app.get("/api/categories", authMiddleware, async (req: Request, res: Response, next: NextFunction) => {
     try {
       const categories = await storage.getAllCategories();

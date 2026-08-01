@@ -54,3 +54,10 @@ Thumbs.db
 uploads/
 errors.txt
 .env
+graphify-out/cache/
+graphify-out/2026-07-31/
+
+# Graphify — herramienta local, no se despliega
+graphify-out/
+setup.sh
+CLAUDE.md.snippet

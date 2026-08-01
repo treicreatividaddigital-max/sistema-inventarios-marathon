@@ -1,3 +1,4 @@
+import { Link } from "wouter";
 import { AlertTriangle, CheckCircle2, Download, LifeBuoy, Loader2, RefreshCcw, Search } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -86,10 +87,12 @@ export function PrinterStatusCard({
                 <RefreshCcw className={`mr-2 h-4 w-4 ${isDetecting ? "animate-spin" : ""}`} />
                 {isDetecting ? "Comprobando…" : "Ya lo instalé, reintentar"}
               </Button>
-              <Button type="button" variant="ghost" onClick={onHelp}>
-                <LifeBuoy className="mr-2 h-4 w-4" />
-                Ayuda
-              </Button>
+              <Link href="/help/printing">
+                <Button type="button" variant="ghost">
+                  <LifeBuoy className="mr-2 h-4 w-4" />
+                  Ayuda
+                </Button>
+              </Link>
             </div>
           </AlertDescription>
         </Alert>
@@ -112,10 +115,12 @@ export function PrinterStatusCard({
                 <RefreshCcw className={`mr-2 h-4 w-4 ${isDetecting ? "animate-spin" : ""}`} />
                 {isDetecting ? "Buscando…" : "Buscar impresora"}
               </Button>
-              <Button type="button" variant="ghost" onClick={onHelp}>
-                <LifeBuoy className="mr-2 h-4 w-4" />
-                Ayuda
-              </Button>
+              <Link href="/help/printing">
+                <Button type="button" variant="ghost">
+                  <LifeBuoy className="mr-2 h-4 w-4" />
+                  Ayuda
+                </Button>
+              </Link>
             </div>
           </AlertDescription>
         </Alert>

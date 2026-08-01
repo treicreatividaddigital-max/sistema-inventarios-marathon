@@ -30,6 +30,7 @@ import CuratorLotsPage from "@/pages/curator-lots";
 import CuratorRacksPage from "@/pages/curator-racks";
 import CuratorUsersPage from "@/pages/curator-users";
 import AdminTaxonomyImportPage from "@/pages/admin-taxonomy-import";
+import HelpPrintingPage from "@/pages/help-printing";
 
 function isPublicGarmentRoute(location: string) {
   return /^\/garment\/[^/]+$/.test(location);
@@ -62,6 +63,7 @@ function AuthenticatedRoutes() {
       <Route path="/curator/racks" component={CuratorRacksPage} />
       <Route path="/curator/users" component={CuratorUsersPage} />
       <Route path="/admin/taxonomy-import" component={AdminTaxonomyImportPage} />
+      <Route path="/help/printing" component={HelpPrintingPage} />
       <Route component={NotFound} />
     </Switch>
   );

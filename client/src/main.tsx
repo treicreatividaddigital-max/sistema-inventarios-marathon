@@ -27,7 +27,7 @@ if (__isQaHost) {
 }
 
 const rootEl = document.getElementById("root");
-if (!rootEl) throw new Error('No se encontró <div id="root">');
+if (!rootEl) throw new Error('Could not find <div id="root">');
 
 createRoot(rootEl).render(
   <StrictMode>

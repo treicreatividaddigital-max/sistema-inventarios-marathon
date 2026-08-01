@@ -61,3 +61,4 @@ graphify-out/2026-07-31/
 graphify-out/
 setup.sh
 CLAUDE.md.snippet
+.loop-plan*.json

@@ -31,6 +31,7 @@ import CuratorRacksPage from "@/pages/curator-racks";
 import CuratorUsersPage from "@/pages/curator-users";
 import AdminTaxonomyImportPage from "@/pages/admin-taxonomy-import";
 import HelpPrintingPage from "@/pages/help-printing";
+import ChangePasswordForcedPage from "@/pages/change-password-forced";
 
 function isPublicGarmentRoute(location: string) {
   return /^\/garment\/[^/]+$/.test(location);
@@ -122,6 +123,11 @@ function AppRouter() {
         <div className="text-lg text-muted-foreground">Loading...</div>
       </div>
     );
+  }
+
+  // Forced password change blocks the entire app until resolved, regardless of route.
+  if (user && !isLoading && user.mustChangePassword === true) {
+    return <ChangePasswordForcedPage />;
   }
 
   // Public garment route: anonymous users see read-only, authenticated users keep the internal detail page.

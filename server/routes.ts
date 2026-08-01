@@ -799,6 +799,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         name: user.name,
         role: user.role,
         isMasterCurator,
+        mustChangePassword: user.mustChangePassword || false,
       });
     } catch (error) {
       next(error);
@@ -817,6 +818,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!requireCurator(req, res)) return;
 
       const users = await storage.getAllUsers();
+      const primaryCuratorEmail = process.env.PRIMARY_CURATOR_EMAIL;
 
       // Nunca devolver passwordHash al frontend
       res.json(
@@ -827,6 +829,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
           role: u.role,
           isActive: u.isActive,
           createdAt: u.createdAt,
+          isMasterCurator: u.email === primaryCuratorEmail,
         })),
       );
     } catch (error) {
@@ -928,8 +931,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const user = await storage.getUser(userId);
       if (!user) return res.sendStatus(404);
 
-      const tempPassword = generateSecurePassword();
-      const hashedPassword = await bcrypt.hash(tempPassword, SALT_ROUNDS);
+      const providedPassword = req.body?.newPassword?.trim();
+      if (providedPassword && providedPassword.length < 6) {
+        return res.status(400).json({
+          statusCode: 400,
+          message: "Password must be at least 6 characters",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const newPassword = providedPassword || generateSecurePassword();
+      const hashedPassword = await bcrypt.hash(newPassword, SALT_ROUNDS);
 
       await storage.updateUser(userId, {
         passwordHash: hashedPassword,
@@ -939,7 +951,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json({
         id: user.id,
         email: user.email,
-        tempPassword,
+        tempPassword: newPassword,
         message: "Password reset. User must change on next login.",
       });
     } catch (error) {
@@ -970,6 +982,70 @@ export async function registerRoutes(app: Express): Promise<Server> {
         id: req.user.id,
         message: "Password changed successfully",
       });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.patch("/api/users/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireMaster(req, res)) return;
+
+      const userId = req.params.id;
+      const { role } = req.body as any;
+
+      if (!role || !["ADMIN", "CURATOR"].includes(role)) {
+        return res.status(400).json({
+          statusCode: 400,
+          message: "Role must be ADMIN or CURATOR",
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      const updated = await storage.updateUser(userId, { role });
+      if (!updated) return res.sendStatus(404);
+
+      const user = await storage.getUser(userId);
+      res.json({
+        id: user?.id,
+        role: user?.role,
+        message: "Role updated successfully",
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+
+  app.delete("/api/users/:id", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
+    try {
+      if (!requireMaster(req, res)) return;
+
+      const userId = req.params.id;
+      const user = await storage.getUser(userId);
+      if (!user) return res.sendStatus(404);
+
+      if (!user.isActive) {
+        try {
+          const deleted = await storage.deleteUser(userId);
+          if (!deleted) return res.sendStatus(404);
+          res.json({ ok: true, message: "User permanently deleted" });
+        } catch (error: any) {
+          if (error.message?.includes("violates foreign key constraint") || error.code === "23503") {
+            return res.status(400).json({
+              statusCode: 400,
+              message: "Cannot delete this user because they have related data (garments, movements, etc.). Archive instead.",
+              timestamp: new Date().toISOString(),
+            });
+          }
+          throw error;
+        }
+      } else {
+        return res.status(400).json({
+          statusCode: 400,
+          message: "Can only delete archived users. Archive the user first.",
+          timestamp: new Date().toISOString(),
+        });
+      }
     } catch (error) {
       next(error);
     }
@@ -1441,7 +1517,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/racks/:id/move-garments", authMiddleware, async (req: AuthRequest, res: Response, next: NextFunction) => {
     try {
-      if (!req.user || (req.user.role !== "ADMIN" && req.user.role !== "CURATOR")) {
+      if (!req.user || req.user.role !== "CURATOR") {
         return res.status(403).json({ statusCode: 403, message: "Forbidden", timestamp: new Date().toISOString() });
       }
 

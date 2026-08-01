@@ -7,6 +7,7 @@ interface User {
   name: string;
   role: "ADMIN" | "CURATOR" | "USER";
   isMasterCurator?: boolean;
+  mustChangePassword?: boolean;
 }
 
 interface AuthContextType {
@@ -15,6 +16,7 @@ interface AuthContextType {
   isLoading: boolean;
   login: (email: string, password: string) => Promise<void>;
   logout: () => void;
+  refreshUser: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -89,8 +91,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     localStorage.removeItem("token");
   };
 
+  const refreshUser = async () => {
+    const storedToken = localStorage.getItem("token");
+    if (storedToken) {
+      await fetchCurrentUser(storedToken);
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, isLoading, login, logout }}>
+    <AuthContext.Provider value={{ user, token, isLoading, login, logout, refreshUser }}>
       {children}
     </AuthContext.Provider>
   );

@@ -33,27 +33,27 @@ export function PrinterIssueDialog({
 }) {
   const title =
     mode === "missing-printer"
-      ? "No se ha podido encontrar tu impresora"
+      ? "We couldn't find your printer"
       : mode === "print-error"
-        ? "No se pudo completar la impresión"
-        : "Ayuda con la impresión";
+        ? "Couldn't complete the print"
+        : "Printing help";
 
   const description =
     mode === "missing-printer"
-      ? "Revisa que esté conectada correctamente y vuelve a intentar."
+      ? "Check that it's connected correctly and try again."
       : mode === "print-error"
-        ? "Haz una verificación rápida y vuelve a intentar."
-        : "Sigue estos pasos para recuperar la impresión.";
+        ? "Run a quick check and try again."
+        : "Follow these steps to recover printing.";
 
-  const statusLabel = snapshot?.connected ? "QZ activo" : "QZ no activo";
+  const statusLabel = snapshot?.connected ? "QZ active" : "QZ inactive";
   const statusVariant = snapshot?.connected ? "secondary" : "destructive";
 
   const helperMessage =
     mode === "missing-printer"
-      ? "No encontramos una impresora disponible en este momento."
+      ? "We couldn't find an available printer right now."
       : mode === "print-error"
-        ? "La solicitud no pudo completarse correctamente."
-        : issueMessage || "Si la impresora no respondió, usa estas acciones para recuperarla.";
+        ? "The request couldn't be completed successfully."
+        : issueMessage || "If the printer didn't respond, use these actions to recover it.";
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -89,10 +89,10 @@ export function PrinterIssueDialog({
           </div>
 
           <div className="rounded-xl border p-4">
-            <p className="text-sm font-semibold">Verificación rápida</p>
+            <p className="text-sm font-semibold">Quick check</p>
             <ol className="mt-3 space-y-2 text-sm leading-6 text-muted-foreground">
-              <li>1. Revisa que la impresora esté conectada.</li>
-              <li>2. Revisa que QZ Tray esté activo y corriendo.</li>
+              <li>1. Check that the printer is connected.</li>
+              <li>2. Check that QZ Tray is active and running.</li>
             </ol>
           </div>
         </div>
@@ -101,23 +101,23 @@ export function PrinterIssueDialog({
           <div className="flex w-full flex-col gap-2">
             <Button type="button" onClick={onReconnect} disabled={isReconnecting} className="w-full">
               <PlugZap className={`mr-2 h-4 w-4 ${isReconnecting ? "animate-pulse" : ""}`} />
-              {isReconnecting ? "Reconectando…" : "Reconectar QZ Tray"}
+              {isReconnecting ? "Reconnecting…" : "Reconnect QZ Tray"}
             </Button>
 
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
               <Button type="button" variant="outline" onClick={onRefreshPrinters} disabled={isRefreshing} className="w-full">
                 <RefreshCcw className={`mr-2 h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
-                {isRefreshing ? "Buscando…" : "Buscar impresora"}
+                {isRefreshing ? "Searching…" : "Find printer"}
               </Button>
 
               <Button type="button" variant="outline" onClick={onTestPrint} disabled={isTesting} className="w-full">
                 <Printer className={`mr-2 h-4 w-4 ${isTesting ? "animate-pulse" : ""}`} />
-                {isTesting ? "Enviando prueba…" : "Imprimir prueba"}
+                {isTesting ? "Sending test…" : "Test print"}
               </Button>
             </div>
 
             <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} className="w-full">
-              Cerrar
+              Close
             </Button>
           </div>
         </DialogFooter>

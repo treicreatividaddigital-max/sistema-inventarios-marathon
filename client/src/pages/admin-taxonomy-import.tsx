@@ -116,7 +116,7 @@ export default function AdminTaxonomyImportPage() {
     },
     onSuccess: async (result) => {
       setTaxonomySummary(result.summary);
-      toast({ title: "Taxonomy imported", description: "Seeds y etiquetas base actualizados." });
+      toast({ title: "Taxonomy imported", description: "Base seeds and labels updated." });
     },
     onError: (error: any) => {
       toast({ title: "Taxonomy import failed", description: error?.message || "Unknown error", variant: "destructive" });
@@ -126,7 +126,7 @@ export default function AdminTaxonomyImportPage() {
   const createFieldMutation = useMutation({
     mutationFn: async () => apiRequest("POST", "/api/admin/custom-fields", fieldDraft),
     onSuccess: async () => {
-      toast({ title: "Custom field created", description: "El nuevo campo configurable ya está disponible." });
+      toast({ title: "Custom field created", description: "The new configurable field is now available." });
       setFieldDraft({ key: "", label: "", inputType: "select", isRequired: false, isFilterable: true, isSearchable: true });
       await refreshCustomFields();
     },
@@ -138,7 +138,7 @@ export default function AdminTaxonomyImportPage() {
   const deleteFieldMutation = useMutation({
     mutationFn: async (fieldId: string) => apiRequest("DELETE", `/api/admin/custom-fields/${fieldId}`),
     onSuccess: async () => {
-      toast({ title: "Field archived", description: "El campo configurable se ocultó sin borrar los datos históricos." });
+      toast({ title: "Field archived", description: "The configurable field was hidden without deleting historical data." });
       await refreshCustomFields();
     },
     onError: (error: any) => {
@@ -154,7 +154,7 @@ export default function AdminTaxonomyImportPage() {
     },
     onSuccess: async (result) => {
       setCustomFieldSummary(result.summary);
-      toast({ title: "Custom fields imported", description: "Campos y opciones configurables cargados correctamente." });
+      toast({ title: "Custom fields imported", description: "Configurable fields and options loaded successfully." });
       await refreshCustomFields();
     },
     onError: (error: any) => {
@@ -175,7 +175,7 @@ export default function AdminTaxonomyImportPage() {
       });
     },
     onSuccess: async (_result, variables) => {
-      toast({ title: "Option added", description: "La nueva opción ya está disponible en el campo." });
+      toast({ title: "Option added", description: "The new option is now available in the field." });
       setNewOptionLabel("");
       await refreshCustomFields();
 
@@ -194,7 +194,7 @@ export default function AdminTaxonomyImportPage() {
     mutationFn: async ({ fieldId, optionId }: { fieldId: string; optionId: string }) =>
       apiRequest("DELETE", `/api/admin/custom-fields/options/${optionId}`),
     onSuccess: async (_result, variables) => {
-      toast({ title: "Option archived", description: "La opción se ocultó sin romper el historial." });
+      toast({ title: "Option archived", description: "The option was hidden without breaking the history." });
       await refreshCustomFields();
 
       const updatedFields =
@@ -220,7 +220,7 @@ export default function AdminTaxonomyImportPage() {
       });
     },
     onSuccess: async (_result, variables) => {
-      toast({ title: "Option renamed", description: "La opción fue actualizada sin romper el historial." });
+      toast({ title: "Option renamed", description: "The option was updated without breaking the history." });
       setEditingOptionId(null);
       setEditingOptionLabel("");
       await refreshCustomFields();
@@ -251,21 +251,21 @@ export default function AdminTaxonomyImportPage() {
       <div>
         <h1 className="text-3xl font-bold">Taxonomy & Custom Fields</h1>
         <p className="text-muted-foreground mt-2">
-          Los campos base siguen igual. Aquí agregas campos extra como Marca, Torneo o Sponsor para cada garment.
+          Base fields remain the same. Here you add extra fields like Brand, Tournament, or Sponsor for each garment.
         </p>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>Cómo usar custom fields</CardTitle>
-          <CardDescription>Paso a paso simple para no perderse.</CardDescription>
+          <CardTitle>How to use custom fields</CardTitle>
+          <CardDescription>Simple step-by-step to not get lost.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-2 text-sm text-muted-foreground">
-          <p><strong>Paso 1.</strong> Descarga la plantilla.</p>
-          <p><strong>Paso 2.</strong> Usa una fila por cada opción.</p>
-          <p><strong>Paso 3.</strong> Repite <code>field_key</code> para meter más opciones en el mismo campo.</p>
-          <p><strong>Paso 4.</strong> Sube el archivo.</p>
-          <p><strong>Paso 5.</strong> Revisa el resultado abajo en “Current custom fields”.</p>
+          <p><strong>Step 1.</strong> Download the template.</p>
+          <p><strong>Step 2.</strong> Use one row per option.</p>
+          <p><strong>Step 3.</strong> Repeat <code>field_key</code> to add more options in the same field.</p>
+          <p><strong>Step 4.</strong> Upload the file.</p>
+          <p><strong>Step 5.</strong> Check the result below in “Current custom fields”.</p>
         </CardContent>
       </Card>
 
@@ -273,7 +273,7 @@ export default function AdminTaxonomyImportPage() {
         <Card>
           <CardHeader>
             <CardTitle>Base taxonomy template</CardTitle>
-            <CardDescription>Plantilla oficial para categorías, colecciones, años y lotes base.</CardDescription>
+            <CardDescription>Official template for categories, collections, years, and base lots.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Button variant="outline" onClick={() => downloadProtectedFile("/api/admin/taxonomy/template", "template-taxonomy.xlsx")}>
@@ -313,7 +313,7 @@ export default function AdminTaxonomyImportPage() {
         <Card>
           <CardHeader>
             <CardTitle>Custom fields template</CardTitle>
-            <CardDescription>Descarga la plantilla, llena una fila por cada opción y vuelve a subirla. El archivo trae ejemplos listos.</CardDescription>
+            <CardDescription>Download the template, fill one row per option and re-upload. The file comes with ready examples.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             <Button variant="outline" onClick={() => downloadProtectedFile("/api/admin/custom-fields/template", "custom-fields-template.xlsx")}>
@@ -354,18 +354,18 @@ export default function AdminTaxonomyImportPage() {
       <Card>
         <CardHeader>
           <CardTitle>Create custom field</CardTitle>
-          <CardDescription>Crea un campo extra manualmente. Ejemplos: Marca, Torneo, Sponsor, Parche, Sub.</CardDescription>
+          <CardDescription>Create an extra field manually. Examples: Brand, Tournament, Sponsor, Patch, Sub.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="grid gap-4 md:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor="field-label">Visible label (lo que verá el usuario)</Label>
-              <Input id="field-label" value={fieldDraft.label} onChange={(e) => setFieldDraft((prev) => ({ ...prev, label: e.target.value }))} placeholder="Marca" />
+              <Label htmlFor="field-label">Visible label (what the user will see)</Label>
+              <Input id="field-label" value={fieldDraft.label} onChange={(e) => setFieldDraft((prev) => ({ ...prev, label: e.target.value }))} placeholder="Brand" />
             </div>
             <div className="space-y-2">
-              <Label htmlFor="field-key">Technical key (sin espacios ni acentos)</Label>
-              <Input id="field-key" value={fieldDraft.key} onChange={(e) => setFieldDraft((prev) => ({ ...prev, key: e.target.value }))} placeholder="marca" />
-              <p className="text-xs text-muted-foreground">Ejemplo: marca, torneo, etiqueta, sponsor, parche.</p>
+              <Label htmlFor="field-key">Technical key (no spaces or accents)</Label>
+              <Input id="field-key" value={fieldDraft.key} onChange={(e) => setFieldDraft((prev) => ({ ...prev, key: e.target.value }))} placeholder="brand" />
+              <p className="text-xs text-muted-foreground">Example: brand, tournament, label, sponsor, patch.</p>
             </div>
           </div>
           <div className="grid gap-4 md:grid-cols-3">
@@ -392,7 +392,7 @@ export default function AdminTaxonomyImportPage() {
       <Card>
         <CardHeader>
           <CardTitle>Current custom fields</CardTitle>
-          <CardDescription>Estos campos aparecen en crear y editar garment. Puedes archivarlos sin borrar el historial.</CardDescription>
+          <CardDescription>These fields appear in create and edit garment. You can archive them without deleting the history.</CardDescription>
         </CardHeader>
         <CardContent>
           <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -416,7 +416,7 @@ export default function AdminTaxonomyImportPage() {
                 <div className="flex items-center gap-2 pt-1">
                   <Button type="button" variant="outline" size="sm" onClick={() => setEditingField(field)}>
                     <Pencil className="h-4 w-4 mr-2" />
-                    Editar
+                    Edit
                   </Button>
                   <Button
                     type="button"
@@ -441,9 +441,9 @@ export default function AdminTaxonomyImportPage() {
       <Dialog open={!!editingField} onOpenChange={(open) => !open && setEditingField(null)}>
         <DialogContent className="sm:max-w-2xl max-h-[85vh] overflow-hidden p-0">
           <DialogHeader className="border-b px-4 py-3 sm:px-6 sm:py-4">
-            <DialogTitle>{editingField ? `Editar campo: ${editingField.label}` : "Editar campo"}</DialogTitle>
+            <DialogTitle>{editingField ? `Edit campo: ${editingField.label}` : "Edit campo"}</DialogTitle>
             <DialogDescription>
-              Administra las opciones del campo sin depender del Excel.
+              Manage field options without depending on Excel.
             </DialogDescription>
           </DialogHeader>
 
@@ -464,9 +464,9 @@ export default function AdminTaxonomyImportPage() {
 
                   <div className="rounded-lg border p-4 space-y-3">
                     <div>
-                      <div className="font-medium">Agregar nueva opción</div>
+                      <div className="font-medium">Add new option</div>
                       <div className="text-sm text-muted-foreground">
-                        Crea opciones individuales sin depender del Excel.
+                        Create individual options without depending on Excel.
                       </div>
                     </div>
 
@@ -474,7 +474,7 @@ export default function AdminTaxonomyImportPage() {
                       <Input
                         value={newOptionLabel}
                         onChange={(e) => setNewOptionLabel(e.target.value)}
-                        placeholder="Ej. Nike"
+                        placeholder="E.g. Nike"
                         className="flex-1"
                       />
                       <Button
@@ -487,16 +487,16 @@ export default function AdminTaxonomyImportPage() {
                         className="w-full sm:w-auto"
                       >
                         <PlusCircle className="mr-2 h-4 w-4" />
-                        {addFieldOptionMutation.isPending ? "Agregando..." : "Agregar"}
+                        {addFieldOptionMutation.isPending ? "Adding..." : "Add"}
                       </Button>
                     </div>
                   </div>
 
                   <div className="rounded-lg border">
                     <div className="sticky top-0 z-10 border-b bg-background px-4 py-3">
-                      <div className="font-medium">Opciones actuales</div>
+                      <div className="font-medium">Current options</div>
                       <div className="text-sm text-muted-foreground">
-                        {editingField.options.length} opción(es) registradas en este campo.
+                        {editingField.options.length} option(s) registered in this field.
                       </div>
                     </div>
 
@@ -510,10 +510,10 @@ export default function AdminTaxonomyImportPage() {
                                   <Input
                                     value={editingOptionLabel}
                                     onChange={(e) => setEditingOptionLabel(e.target.value)}
-                                    placeholder="Nuevo nombre"
+                                    placeholder="New name"
                                   />
                                   <div className="mt-2 break-all text-xs text-muted-foreground">
-                                    Valor técnico conservado: {option.value}
+                                    Technical value preserved:{option.value}
                                   </div>
                                 </div>
 
@@ -533,7 +533,7 @@ export default function AdminTaxonomyImportPage() {
                                     className="w-full sm:w-auto"
                                   >
                                     <Check className="mr-2 h-4 w-4" />
-                                    Guardar
+                                    Save
                                   </Button>
                                   <Button
                                     type="button"
@@ -547,7 +547,7 @@ export default function AdminTaxonomyImportPage() {
                                     className="w-full sm:w-auto"
                                   >
                                     <X className="mr-2 h-4 w-4" />
-                                    Cancelar
+                                    Cancel
                                   </Button>
                                 </div>
                               </div>
@@ -559,7 +559,7 @@ export default function AdminTaxonomyImportPage() {
                                 </div>
 
                                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                                  <div className="text-xs text-muted-foreground">Disponible</div>
+                                  <div className="text-xs text-muted-foreground">Available</div>
                                   <Button
                                     type="button"
                                     variant="outline"
@@ -571,7 +571,7 @@ export default function AdminTaxonomyImportPage() {
                                     className="w-full sm:w-auto"
                                   >
                                     <Pencil className="mr-2 h-4 w-4" />
-                                    Renombrar
+                                    Rename
                                   </Button>
                                   <Button
                                     type="button"
@@ -589,7 +589,7 @@ export default function AdminTaxonomyImportPage() {
                                     className="w-full sm:w-auto"
                                   >
                                     <Trash2 className="mr-2 h-4 w-4" />
-                                    Archivar
+                                    Archive
                                   </Button>
                                 </div>
                               </div>
@@ -598,14 +598,14 @@ export default function AdminTaxonomyImportPage() {
                         ))
                       ) : (
                         <div className="px-4 py-6 text-sm text-muted-foreground">
-                          Este campo aún no tiene opciones.
+                          This field has no options yet.
                         </div>
                       )}
                     </div>
                   </div>
 
                   <div className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">
-                    Renombrar corrige el nombre visible sin romper historial. Archivar la retira de uso futuro.
+                    Rename corrige el nombre visible sin romper historial. Archive la retira de uso futuro.
                   </div>
                 </div>
               </div>
@@ -618,7 +618,7 @@ export default function AdminTaxonomyImportPage() {
         <Card>
           <CardHeader>
             <CardTitle>Last taxonomy import</CardTitle>
-            <CardDescription>Hoja procesada: {taxonomySummary.sheet}</CardDescription>
+            <CardDescription>Sheet processed:{taxonomySummary.sheet}</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -639,7 +639,7 @@ export default function AdminTaxonomyImportPage() {
         <Card>
           <CardHeader>
             <CardTitle>Last custom fields import</CardTitle>
-            <CardDescription>Resumen de la última importación de campos extra.</CardDescription>
+            <CardDescription>Summary of the last extra fields import.</CardDescription>
           </CardHeader>
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">

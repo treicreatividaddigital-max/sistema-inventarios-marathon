@@ -21,7 +21,7 @@ function StatusBadge({ state }: { state: PrinterUiState }) {
     return (
       <Badge variant="secondary" className="gap-1.5 border-transparent bg-emerald-500/15 text-emerald-700 dark:text-emerald-400">
         <CheckCircle2 className="h-3.5 w-3.5" />
-        Impresora lista
+        Printer ready
       </Badge>
     );
   }
@@ -29,7 +29,7 @@ function StatusBadge({ state }: { state: PrinterUiState }) {
     return (
       <Badge variant="outline" className="gap-1.5 border-amber-500/50 text-amber-700 dark:text-amber-400">
         <AlertTriangle className="h-3.5 w-3.5" />
-        QZ Tray activo, sin impresora
+        QZ Tray active, no printer
       </Badge>
     );
   }
@@ -37,14 +37,14 @@ function StatusBadge({ state }: { state: PrinterUiState }) {
     return (
       <Badge variant="destructive" className="gap-1.5">
         <AlertTriangle className="h-3.5 w-3.5" />
-        QZ Tray no conectado
+        QZ Tray not connected
       </Badge>
     );
   }
   return (
     <Badge variant="outline" className="gap-1.5 text-muted-foreground">
       <Loader2 className="h-3.5 w-3.5 animate-spin" />
-      Comprobando impresora…
+      Checking printer…
     </Badge>
   );
 }
@@ -62,35 +62,35 @@ export function PrinterStatusCard({
 }) {
   const state = derivePrinterUiState(snapshot);
 
-  // ESTADO 1 — QZ Tray no conectado: guía grande y proactiva, sin esperar acción del usuario.
+  // STATE 1 — QZ Tray not connected: large, proactive guide, without waiting for user action.
   if (state === "disconnected") {
     return (
       <div className="space-y-2">
         <StatusBadge state={state} />
         <Alert variant="destructive" className="space-y-3 p-5">
           <AlertTriangle className="h-5 w-5" />
-          <AlertTitle className="text-base">Necesitas QZ Tray para imprimir etiquetas</AlertTitle>
+          <AlertTitle className="text-base">You need QZ Tray to print labels</AlertTitle>
           <AlertDescription className="space-y-4">
             <p>
-              Los navegadores no pueden enviar datos directo a una impresora térmica. <strong>QZ Tray</strong> es
-              una app pequeña que instalas en tu computadora y que hace de puente entre ARCHIVE y tu impresora.
+              Browsers can't send data directly to a thermal printer. <strong>QZ Tray</strong> is
+              a small app you install on your computer that bridges ARCHIVE and your printer.
             </p>
-            <p className="text-sm">Sin QZ Tray abierto y corriendo, no vas a poder imprimir etiquetas térmicas.</p>
+            <p className="text-sm">Without QZ Tray open and running, you won't be able to print thermal labels.</p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button type="button" asChild>
                 <a href={QZ_TRAY_DOWNLOAD_URL} target="_blank" rel="noopener noreferrer">
                   <Download className="mr-2 h-4 w-4" />
-                  Descargar QZ Tray
+                  Download QZ Tray
                 </a>
               </Button>
               <Button type="button" variant="outline" onClick={onDetect} disabled={isDetecting}>
                 <RefreshCcw className={`mr-2 h-4 w-4 ${isDetecting ? "animate-spin" : ""}`} />
-                {isDetecting ? "Comprobando…" : "Ya lo instalé, reintentar"}
+                {isDetecting ? "Checking…" : "I installed it, retry"}
               </Button>
               <Link href="/help/printing">
                 <Button type="button" variant="ghost">
                   <LifeBuoy className="mr-2 h-4 w-4" />
-                  Ayuda
+                  Help
                 </Button>
               </Link>
             </div>
@@ -100,25 +100,25 @@ export function PrinterStatusCard({
     );
   }
 
-  // ESTADO 2 — QZ Tray conecta pero no detecta/calza una impresora: mensaje corto y distinto del Estado 1.
+  // STATE 2 — QZ Tray connects but doesn't detect/match a printer: short message, distinct from State 1.
   if (state === "no-printer") {
     return (
       <div className="space-y-2">
         <StatusBadge state={state} />
         <Alert className="border-amber-500/50">
           <Search className="h-4 w-4 text-amber-600 dark:text-amber-400" />
-          <AlertTitle>QZ Tray funciona, pero no encuentro tu impresora</AlertTitle>
+          <AlertTitle>QZ Tray is connected, but we can't find your printer</AlertTitle>
           <AlertDescription className="space-y-3">
-            <p>Revisa que esté encendida y conectada, luego vuelve a intentar.</p>
+            <p>Check that it's powered on and connected, then try again.</p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button type="button" variant="secondary" onClick={onDetect} disabled={isDetecting}>
                 <RefreshCcw className={`mr-2 h-4 w-4 ${isDetecting ? "animate-spin" : ""}`} />
-                {isDetecting ? "Buscando…" : "Buscar impresora"}
+                {isDetecting ? "Searching…" : "Find printer"}
               </Button>
               <Link href="/help/printing">
                 <Button type="button" variant="ghost">
                   <LifeBuoy className="mr-2 h-4 w-4" />
-                  Ayuda
+                  Help
                 </Button>
               </Link>
             </div>
@@ -128,7 +128,7 @@ export function PrinterStatusCard({
     );
   }
 
-  // ESTADO 3 — listo: indicador verde discreto.
+  // STATE 3 — ready: discreet green indicator.
   if (state === "ready") {
     return (
       <div className="space-y-2">
@@ -136,19 +136,19 @@ export function PrinterStatusCard({
         <Alert>
           <CheckCircle2 className="h-4 w-4" />
           <AlertTitle className="flex flex-wrap items-center gap-2">
-            Impresora lista
+            Printer ready
             <Badge variant="outline">{snapshot?.selectedPrinter}</Badge>
           </AlertTitle>
           <AlertDescription className="space-y-3">
-            <p>{snapshot?.message || "La impresora está disponible para imprimir."}</p>
+            <p>{snapshot?.message || "The printer is available for printing."}</p>
             <div className="flex flex-col gap-2 sm:flex-row">
               <Button type="button" variant="outline" onClick={onDetect} disabled={isDetecting}>
                 <RefreshCcw className={`mr-2 h-4 w-4 ${isDetecting ? "animate-spin" : ""}`} />
-                {isDetecting ? "Actualizando…" : "Actualizar impresoras"}
+                {isDetecting ? "Updating…" : "Refresh printers"}
               </Button>
               <Button type="button" variant="ghost" onClick={onHelp}>
                 <LifeBuoy className="mr-2 h-4 w-4" />
-                Tengo problemas con mi impresión
+                I'm having printing issues
               </Button>
             </div>
           </AlertDescription>
@@ -157,6 +157,6 @@ export function PrinterStatusCard({
     );
   }
 
-  // ESTADO "checking" — snapshot aún no llega (primer render); indicador discreto sin alarmar.
+  // STATE "checking" — snapshot hasn't arrived yet (first render); discreet indicator, no alarm.
   return <StatusBadge state={state} />;
 }

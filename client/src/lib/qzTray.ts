@@ -303,7 +303,7 @@ export async function getQzPrinterConnectionSnapshot(preferredPrinterName?: stri
         defaultPrinter,
         selectedPrinter: "",
         rememberedPrinter: preferredTrimmed,
-        message: "No se pudo conectar con QZ Tray.",
+        message: "Could not connect to QZ Tray.",
         severity: "error",
         checkedAt: Date.now(),
       };
@@ -316,7 +316,7 @@ export async function getQzPrinterConnectionSnapshot(preferredPrinterName?: stri
         defaultPrinter: "",
         selectedPrinter: "",
         rememberedPrinter: preferredTrimmed,
-        message: "No se ha podido encontrar tu impresora. Revisa que esté encendida y conectada, luego vuelve a intentar.",
+        message: "We couldn't find your printer. Check that it's powered on and connected, then try again.",
         severity: "warning",
         checkedAt: Date.now(),
       };
@@ -329,7 +329,7 @@ export async function getQzPrinterConnectionSnapshot(preferredPrinterName?: stri
         defaultPrinter,
         selectedPrinter,
         rememberedPrinter: preferredTrimmed,
-        message: `Tu impresora guardada no estaba disponible. Se seleccionó automáticamente ${selectedPrinter}.`,
+        message: `Your saved printer wasn't available. ${selectedPrinter} was selected automatically.`,
         severity: "warning",
         checkedAt: Date.now(),
       };
@@ -342,8 +342,8 @@ export async function getQzPrinterConnectionSnapshot(preferredPrinterName?: stri
       selectedPrinter,
       rememberedPrinter: preferredTrimmed,
       message: selectedPrinter
-        ? `QZ Tray conectado. Impresora seleccionada: ${selectedPrinter}.`
-        : "QZ Tray conectado. Selecciona una impresora para continuar.",
+        ? `QZ Tray connected. Selected printer: ${selectedPrinter}.`
+        : "QZ Tray connected. Select a printer to continue.",
       severity: "ready",
       checkedAt: Date.now(),
     };
@@ -412,20 +412,20 @@ export async function printRawThermalLabel(params: {
 export function describeQzError(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error || "Error desconocido");
   if (/already exists/i.test(message)) {
-    return "QZ Tray ya estaba conectado. ARCHIVE volverá a consultar la impresora sin abrir una segunda conexión.";
+    return "QZ Tray was already connected. ARCHIVE will check the printer again without opening a second connection.";
   }
   if (/specified printer could not be found|no se encontró la impresora|printer could not be found/i.test(message)) {
-    return "No se ha podido encontrar tu impresora. Revisa que esté encendida y conectada, luego vuelve a intentar.";
+    return "We couldn't find your printer. Check that it's powered on and connected, then try again.";
   }
   if (/load/i.test(message) && /qz/i.test(message)) {
-    return "No se pudo cargar qz-tray.js. Revisa la red o copia el archivo en /client/public/vendor/qz/.";
+    return "Couldn't load qz-tray.js. Check your network connection or copy the file into /client/public/vendor/qz/.";
   }
   if (/connect|websocket|localhost|demo\.qz\.io|8181|8182/i.test(message)) {
-    return "No se pudo conectar con QZ Tray. Verifica que la app de escritorio esté abierta y vuelve a intentar.";
+    return "Could not connect to QZ Tray. Make sure the desktop app is open and try again.";
   }
   if (/printer/i.test(message)) {
-    return "No se ha podido encontrar tu impresora. Revisa que esté encendida y conectada, luego vuelve a intentar.";
+    return "We couldn't find your printer. Check that it's powered on and connected, then try again.";
   }
-  console.error("[QZ Tray] Error no reconocido:", message);
-  return "Ocurrió un problema con la conexión de impresión. Intenta reconectar QZ Tray o pide ayuda.";
+  console.error("[QZ Tray] Unrecognized error:", message);
+  return "There was a problem with the print connection. Try reconnecting QZ Tray or get help.";
 }

@@ -127,7 +127,7 @@ export default function RackPrintPage() {
       }
       if (!silent) {
         toast({
-          title: snapshot.severity === "ready" ? "Impresora lista" : "Revisa la conexión de impresión",
+          title: snapshot.severity === "ready" ? "Printer ready" : "Check print connection",
           description: snapshot.message,
           variant: snapshot.severity === "error" ? "destructive" : "default",
         });
@@ -147,7 +147,7 @@ export default function RackPrintPage() {
       setPrinterSnapshot(failedSnapshot);
       setPrinterIssueMessage(description);
       if (!silent) {
-        toast({ title: "No se pudo revisar la impresora", description, variant: "destructive" });
+        toast({ title: "Couldn't check printer", description, variant: "destructive" });
       }
       return failedSnapshot;
     } finally {
@@ -216,14 +216,14 @@ export default function RackPrintPage() {
     const snapshot = await syncPrinterState({ silent: false });
     if (!snapshot?.connected || !snapshot.selectedPrinter.trim()) {
       setPrinterDialogMode("missing-printer");
-      setPrinterIssueMessage("No se ha podido encontrar tu impresora. Revisa que esté conectada correctamente y vuelve a intentar.");
+      setPrinterIssueMessage("Couldn't find your printer. Check it's connected properly and try again.");
       setIsReconnectDialogOpen(true);
     }
   };
 
   const handleOpenPrinterHelp = () => {
     setPrinterDialogMode("manual-help");
-    setPrinterIssueMessage(printerSnapshot?.message || "La impresora aparece conectada, pero puedes reconectar QZ Tray o enviar una impresión de prueba.");
+    setPrinterIssueMessage(printerSnapshot?.message || "Printer appears connected, but you can reconnect QZ Tray or send a test print.");
     setIsReconnectDialogOpen(true);
   };
 
@@ -231,24 +231,24 @@ export default function RackPrintPage() {
     const snapshot = await syncPrinterState({ reconnect: true, silent: false });
     if (snapshot?.severity !== "ready" || !snapshot?.selectedPrinter.trim()) {
       setPrinterDialogMode("missing-printer");
-      setPrinterIssueMessage("No se ha podido encontrar tu impresora. Revisa que esté conectada correctamente y vuelve a intentar.");
+      setPrinterIssueMessage("Couldn't find your printer. Check it's connected properly and try again.");
       setIsReconnectDialogOpen(true);
       return;
     }
 
-    setPrinterIssueMessage(`QZ Tray se reconectó correctamente con ${snapshot.selectedPrinter}.`);
+    setPrinterIssueMessage(`QZ Tray reconnected successfully with ${snapshot.selectedPrinter}.`);
   };
 
   const handleThermalPrint = async () => {
     if (!rack?.code) return;
     const snapshot = await syncPrinterState({ silent: true });
     if (!snapshot?.connected || !snapshot.selectedPrinter.trim()) {
-      const message = "No se ha podido encontrar tu impresora. Revisa que esté conectada correctamente y vuelve a intentar.";
+      const message = "We couldn't find your printer. Check that it's powered on and connected, then try again.";
       setPrinterDialogMode("missing-printer");
       setPrinterIssueMessage(message);
       setIsReconnectDialogOpen(true);
       toast({
-        title: "Impresora no lista",
+        title: "Printer not ready",
         description: message,
         variant: "destructive",
       });
@@ -265,12 +265,12 @@ export default function RackPrintPage() {
       });
       setPrinterIssueMessage("");
       setIsReconnectDialogOpen(false);
-      toast({ title: "Etiqueta enviada", description: `${rack.code} enviado a ${snapshot.selectedPrinter}` });
+      toast({ title: "Label sent", description: `${rack.code} sent to ${snapshot.selectedPrinter}` });
     } catch (error) {
       const description = describeQzError(error);
       setPrinterDialogMode("print-error");
       setPrinterIssueMessage(description);
-      toast({ title: "No se pudo imprimir", description, variant: "destructive" });
+      toast({ title: "Couldn't print", description, variant: "destructive" });
       setPrinterSnapshot((prev) => prev ? { ...prev, message: description, severity: "error", checkedAt: Date.now() } : prev);
       setIsReconnectDialogOpen(true);
     } finally {
@@ -281,11 +281,11 @@ export default function RackPrintPage() {
   const handleTestPrint = async () => {
     const snapshot = await syncPrinterState({ silent: true });
     if (!snapshot?.connected || !snapshot.selectedPrinter.trim()) {
-      const message = "No se ha podido encontrar tu impresora. Revisa que esté conectada correctamente y vuelve a intentar.";
+      const message = "We couldn't find your printer. Check that it's powered on and connected, then try again.";
       setPrinterDialogMode("missing-printer");
       setPrinterIssueMessage(message);
       setIsReconnectDialogOpen(true);
-      toast({ title: "No se pudo imprimir la prueba", description: message, variant: "destructive" });
+      toast({ title: "Couldn't print test", description: message, variant: "destructive" });
       return;
     }
 
@@ -300,14 +300,14 @@ export default function RackPrintPage() {
       });
       setPrinterIssueMessage("");
       setIsReconnectDialogOpen(false);
-      toast({ title: "Prueba enviada", description: `Se envió una etiqueta de prueba a ${snapshot.selectedPrinter}.` });
+      toast({ title: "Test sent", description: `A test label was sent to ${snapshot.selectedPrinter}.` });
       await syncPrinterState({ silent: true });
     } catch (error) {
       const description = describeQzError(error);
       setPrinterDialogMode("print-error");
       setPrinterIssueMessage(description);
       setIsReconnectDialogOpen(true);
-      toast({ title: "La prueba no se pudo enviar", description, variant: "destructive" });
+      toast({ title: "Test couldn't be sent", description, variant: "destructive" });
     } finally {
       setIsTestingPrinter(false);
     }
@@ -339,7 +339,7 @@ export default function RackPrintPage() {
         open={isReconnectDialogOpen}
         onOpenChange={setIsReconnectDialogOpen}
         snapshot={printerSnapshot}
-        issueMessage={printerIssueMessage || printerSnapshot?.message || "No pudimos completar la impresión."}
+        issueMessage={printerIssueMessage || printerSnapshot?.message || "We couldn't complete the print."}
         mode={printerDialogMode}
         onReconnect={() => void handleReconnectPrinter()}
         onRefreshPrinters={() => void handleDetectPrinter()}
@@ -355,7 +355,7 @@ export default function RackPrintPage() {
           </Link>
           <div className="flex-1 min-w-0">
             <h1 className="text-3xl font-semibold">Print Rack Label</h1>
-            <p className="text-muted-foreground mt-2">Etiqueta térmica individual usando el mismo motor que la impresión masiva.</p>
+            <p className="text-muted-foreground mt-2">Individual thermal label using the same engine as batch printing.</p>
             <ThermalPrintSupportNote />
           </div>
         </div>
@@ -368,50 +368,50 @@ export default function RackPrintPage() {
         />
         <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
           <Card>
-            <CardHeader><CardTitle>Configuración de impresión</CardTitle><CardDescription>Comparte el mismo preset y lógica térmica que el módulo masivo.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Print settings</CardTitle><CardDescription>Shares the same preset and thermal logic as the batch module.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <div className="space-y-2">
-                <PrintSettingLabel help="Selecciona una impresora detectada por QZ Tray o escribe una variante cercana del nombre. El motor resolverá coincidencias simples automáticamente.">Impresora</PrintSettingLabel>
+                <PrintSettingLabel help="Select a printer detected by QZ Tray or type a close variant. The engine will resolve simple matches automatically.">Printer</PrintSettingLabel>
                 <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
                   <Select value={availablePrinters.includes(printerName) ? printerName : "__manual__"} onValueChange={(value) => { if (value === "__manual__") { setPrinterName(""); return; } setPrinterName(value); }}>
-                    <SelectTrigger><SelectValue placeholder="Selecciona impresora" /></SelectTrigger>
-                    <SelectContent>{availablePrinters.map((printer) => <SelectItem key={printer} value={printer}>{printer}</SelectItem>)}<SelectItem value="__manual__">Escribir manualmente</SelectItem></SelectContent>
+                    <SelectTrigger><SelectValue placeholder="Select printer" /></SelectTrigger>
+                    <SelectContent>{availablePrinters.map((printer) => <SelectItem key={printer} value={printer}>{printer}</SelectItem>)}<SelectItem value="__manual__">Type manually</SelectItem></SelectContent>
                   </Select>
                   <Button variant="outline" size="icon" onClick={handleDetectPrinter} disabled={isDetectingPrinter}><RefreshCcw className={`h-4 w-4 ${isDetectingPrinter ? "animate-spin" : ""}`} /></Button>
                 </div>
                 <Input value={printerName} onChange={(e) => setPrinterName(e.target.value)} placeholder="Avicar_THERM" />
               </div>
 
-              <div className="space-y-2"><PrintSettingLabel help="TSPL es la opción recomendada para esta impresora. Usa ZPL solo si tu hardware lo soporta y ya lo validaste.">Lenguaje térmico</PrintSettingLabel><Select value={language} onValueChange={(value) => setLanguage(value as ThermalLanguage)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="tspl">TSPL</SelectItem><SelectItem value="zpl">ZPL</SelectItem></SelectContent></Select></div>
-              <div className="space-y-2"><PrintSettingLabel help="Presets rápidos para tamaños comunes. Custom mantiene tus valores manuales.">Preset de etiqueta</PrintSettingLabel><Select value={presetKey} onValueChange={applyPreset}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{THERMAL_LABEL_PRESETS.map((preset) => <SelectItem key={preset.key} value={preset.key}>{preset.label}</SelectItem>)}<SelectItem value="custom">Custom</SelectItem></SelectContent></Select></div>
+              <div className="space-y-2"><PrintSettingLabel help="TSPL is recommended for this printer. Use ZPL only if your hardware supports it and you've validated it.">Thermal language</PrintSettingLabel><Select value={language} onValueChange={(value) => setLanguage(value as ThermalLanguage)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="tspl">TSPL</SelectItem><SelectItem value="zpl">ZPL</SelectItem></SelectContent></Select></div>
+              <div className="space-y-2"><PrintSettingLabel help="Quick presets for common sizes. Custom keeps your manual values.">Label preset</PrintSettingLabel><Select value={presetKey} onValueChange={applyPreset}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent>{THERMAL_LABEL_PRESETS.map((preset) => <SelectItem key={preset.key} value={preset.key}>{preset.label}</SelectItem>)}<SelectItem value="custom">Custom</SelectItem></SelectContent></Select></div>
 
               <div className="grid grid-cols-2 gap-3">
-                <div className="space-y-2"><PrintSettingLabel help="Ancho total de la etiqueta. Tu rollo validado actual es 40 mm.">Ancho (mm)</PrintSettingLabel><Input type="number" value={settings.widthMm} onChange={(e) => setSettings((prev) => ({ ...prev, widthMm: Number(e.target.value) || prev.widthMm }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Alto total de la etiqueta. Tu rollo validado actual es 25 mm.">Alto (mm)</PrintSettingLabel><Input type="number" value={settings.heightMm} onChange={(e) => setSettings((prev) => ({ ...prev, heightMm: Number(e.target.value) || prev.heightMm }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Distancia entre etiquetas. Si salta una etiqueta, este valor suele ser el primero que debes revisar.">Gap (mm)</PrintSettingLabel><Input type="number" value={settings.gapMm} onChange={(e) => setSettings((prev) => ({ ...prev, gapMm: Number(e.target.value) || 0 }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Tamaño objetivo del QR. Si no cabe, el motor lo reduce automáticamente para evitar montajes.">QR (mm)</PrintSettingLabel><Input type="number" value={settings.qrSizeMm} onChange={(e) => setSettings((prev) => ({ ...prev, qrSizeMm: Number(e.target.value) || prev.qrSizeMm }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Desplaza todo el contenido horizontalmente en dots para microajustes finos de impresora.">Offset X (dots)</PrintSettingLabel><Input type="number" value={settings.offsetX} onChange={(e) => setSettings((prev) => ({ ...prev, offsetX: Number(e.target.value) || 0 }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Desplaza todo el contenido verticalmente en dots. Útil para alinear mejor con el gap real del papel.">Offset Y (dots)</PrintSettingLabel><Input type="number" value={settings.offsetY} onChange={(e) => setSettings((prev) => ({ ...prev, offsetY: Number(e.target.value) || 0 }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Mueve solo los textos horizontalmente, sin afectar el QR.">Offset texto X (dots)</PrintSettingLabel><Input type="number" value={settings.textOffsetX} onChange={(e) => setSettings((prev) => ({ ...prev, textOffsetX: Number(e.target.value) || 0 }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Mueve solo los textos verticalmente, sin afectar el QR.">Offset texto Y (dots)</PrintSettingLabel><Input type="number" value={settings.textOffsetY} onChange={(e) => setSettings((prev) => ({ ...prev, textOffsetY: Number(e.target.value) || 0 }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Mueve solo el QR horizontalmente, sin afectar los textos.">Offset QR X (dots)</PrintSettingLabel><Input type="number" value={settings.qrOffsetX} onChange={(e) => setSettings((prev) => ({ ...prev, qrOffsetX: Number(e.target.value) || 0 }))} /></div>
-                <div className="space-y-2"><PrintSettingLabel help="Mueve solo el QR verticalmente, sin afectar los textos.">Offset QR Y (dots)</PrintSettingLabel><Input type="number" value={settings.qrOffsetY} onChange={(e) => setSettings((prev) => ({ ...prev, qrOffsetY: Number(e.target.value) || 0 }))} /></div>
+                <div className="space-y-2"><PrintSettingLabel help="Total label width. Your current validated roll is 40 mm.">Width (mm)</PrintSettingLabel><Input type="number" value={settings.widthMm} onChange={(e) => setSettings((prev) => ({ ...prev, widthMm: Number(e.target.value) || prev.widthMm }))} /></div>
+                <div className="space-y-2"><PrintSettingLabel help="Total label height. Your current validated roll is 25 mm.">Height (mm)</PrintSettingLabel><Input type="number" value={settings.heightMm} onChange={(e) => setSettings((prev) => ({ ...prev, heightMm: Number(e.target.value) || prev.heightMm }))} /></div>
+                <div className="space-y-2"><PrintSettingLabel help="Distance between labels. If a label skips, this is usually the first value to check.">Gap (mm)</PrintSettingLabel><Input type="number" value={settings.gapMm} onChange={(e) => setSettings((prev) => ({ ...prev, gapMm: Number(e.target.value) || 0 }))} /></div>
+                <div className="space-y-2"><PrintSettingLabel help="Target QR size. If it doesn't fit, the engine reduces it to prevent overlap with title or code.">QR (mm)</PrintSettingLabel><Input type="number" value={settings.qrSizeMm} onChange={(e) => setSettings((prev) => ({ ...prev, qrSizeMm: Number(e.target.value) || prev.qrSizeMm }))} /></div>
+                <div className="space-y-2"><PrintSettingLabel help="Shifts all content horizontally in dots for fine printer adjustments.">Offset X (dots)</PrintSettingLabel><Input type="number" value={settings.offsetX} onChange={(e) => setSettings((prev) => ({ ...prev, offsetX: Number(e.target.value) || 0 }))} /></div>
+                <div className="space-y-2"><PrintSettingLabel help="Shifts all content vertically in dots. Useful for aligning with actual paper gap.">Offset Y (dots)</PrintSettingLabel><Input type="number" value={settings.offsetY} onChange={(e) => setSettings((prev) => ({ ...prev, offsetY: Number(e.target.value) || 0 }))} /></div>
+                <div className="space-y-2"><PrintSettingLabel help="Moves only texts horizontally, without affecting QR.">Text Offset X (dots)</PrintSettingLabel><Input type="number" value={settings.textOffsetX} onChange={(e) => setSettings((prev) => ({ ...prev, textOffsetX: Number(e.target.value) || 0 }))} /></div>
+                <div className="space-y-2"><PrintSettingLabel help="Moves only texts vertically, without affecting QR.">Text Offset Y (dots)</PrintSettingLabel><Input type="number" value={settings.textOffsetY} onChange={(e) => setSettings((prev) => ({ ...prev, textOffsetY: Number(e.target.value) || 0 }))} /></div>
+                <div className="space-y-2"><PrintSettingLabel help="Moves only QR horizontally, without affecting texts.">QR Offset X (dots)</PrintSettingLabel><Input type="number" value={settings.qrOffsetX} onChange={(e) => setSettings((prev) => ({ ...prev, qrOffsetX: Number(e.target.value) || 0 }))} /></div>
+                <div className="space-y-2"><PrintSettingLabel help="Moves only QR vertically, without affecting texts.">QR Offset Y (dots)</PrintSettingLabel><Input type="number" value={settings.qrOffsetY} onChange={(e) => setSettings((prev) => ({ ...prev, qrOffsetY: Number(e.target.value) || 0 }))} /></div>
               </div>
 
-              <div className="space-y-2"><PrintSettingLabel help="Texto superior opcional. Cuando está activo, el motor recalcula el espacio para no montar el QR sobre el título.">Título</PrintSettingLabel><Input value={settings.title} onChange={(e) => setSettings((prev) => ({ ...prev, title: e.target.value }))} /></div>
-              <div className="space-y-2"><PrintSettingLabel help="El QR puede contener solo el código o la URL completa del rack.">Contenido del QR</PrintSettingLabel><Select value={qrMode} onValueChange={(value) => setQrMode(value as QrPayloadMode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="code">Solo código</SelectItem><SelectItem value="url">URL del rack</SelectItem></SelectContent></Select></div>
+              <div className="space-y-2"><PrintSettingLabel help="Optional header text. When active, the engine recalculates space to prevent QR overlap with title.">Title</PrintSettingLabel><Input value={settings.title} onChange={(e) => setSettings((prev) => ({ ...prev, title: e.target.value }))} /></div>
+              <div className="space-y-2"><PrintSettingLabel help="QR can contain only the code or the full rack URL.">QR content</PrintSettingLabel><Select value={qrMode} onValueChange={(value) => setQrMode(value as QrPayloadMode)}><SelectTrigger><SelectValue /></SelectTrigger><SelectContent><SelectItem value="code">Code only</SelectItem><SelectItem value="url">Rack URL</SelectItem></SelectContent></Select></div>
 
-              <div className="flex items-center justify-between rounded-md border p-3 gap-3"><div className="min-w-0"><p className="font-medium">Mostrar título</p><p className="text-xs text-muted-foreground">Encabezado superior.</p></div><Switch checked={settings.showTitle} onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, showTitle: checked }))} /></div>
-              <div className="flex items-center justify-between rounded-md border p-3 gap-3"><div className="min-w-0"><p className="font-medium">Incluir QR</p><p className="text-xs text-muted-foreground">El preview y la impresión responden al instante.</p></div><Switch checked={settings.includeQr} onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, includeQr: checked }))} /></div>
-              <div className="flex flex-col gap-2 sm:flex-row"><Button onClick={handleThermalPrint} disabled={!rack?.code || isPrintingThermal} className="flex-1"><Printer className="mr-2 h-4 w-4" />{isPrintingThermal ? "Enviando..." : "Imprimir térmica"}</Button><Button variant="outline" className="flex-1" onClick={() => window.print()}>Imprimir navegador</Button></div>
+              <div className="flex items-center justify-between rounded-md border p-3 gap-3"><div className="min-w-0"><p className="font-medium">Show title</p><p className="text-xs text-muted-foreground">Header above.</p></div><Switch checked={settings.showTitle} onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, showTitle: checked }))} /></div>
+              <div className="flex items-center justify-between rounded-md border p-3 gap-3"><div className="min-w-0"><p className="font-medium">Include QR</p><p className="text-xs text-muted-foreground">Preview and print update instantly.</p></div><Switch checked={settings.includeQr} onCheckedChange={(checked) => setSettings((prev) => ({ ...prev, includeQr: checked }))} /></div>
+              <div className="flex flex-col gap-2 sm:flex-row"><Button onClick={handleThermalPrint} disabled={!rack?.code || isPrintingThermal} className="flex-1"><Printer className="mr-2 h-4 w-4" />{isPrintingThermal ? "Sending..." : "Print thermal"}</Button><Button variant="outline" className="flex-1" onClick={() => window.print()}>Print browser</Button></div>
             </CardContent>
           </Card>
           <Card>
-            <CardHeader><CardTitle>Preview en tiempo real</CardTitle><CardDescription>Lo que ves aquí usa el mismo layout lógico del motor térmico.</CardDescription></CardHeader>
+            <CardHeader><CardTitle>Real-time preview</CardTitle><CardDescription>What you see here uses the same layout logic as the thermal engine.</CardDescription></CardHeader>
             <CardContent className="space-y-4">
               <div id="browser-label-preview" className="flex min-h-[320px] overflow-auto items-center justify-center rounded-lg border bg-muted/30 p-6"><ThermalLabelPreview title={settings.title} code={rack?.code || rackCode || "RACK-000"} qrValue={qrValue} settings={settings} /></div>
-              <div className="grid gap-4 md:grid-cols-2"><div className="rounded-md border p-3"><p className="text-sm font-medium">Código</p><p className="mt-1 font-mono text-sm text-muted-foreground">{rack?.code || rackCode || "-"}</p></div><div className="rounded-md border p-3"><p className="text-sm font-medium">Payload QR</p><p className="mt-1 break-all text-sm text-muted-foreground">{qrValue || "-"}</p></div></div>
-              {isLoading && <p className="text-sm text-muted-foreground">Cargando rack…</p>}
+              <div className="grid gap-4 md:grid-cols-2"><div className="rounded-md border p-3"><p className="text-sm font-medium">Code</p><p className="mt-1 font-mono text-sm text-muted-foreground">{rack?.code || rackCode || "-"}</p></div><div className="rounded-md border p-3"><p className="text-sm font-medium">QR Payload</p><p className="mt-1 break-all text-sm text-muted-foreground">{qrValue || "-"}</p></div></div>
+              {isLoading && <p className="text-sm text-muted-foreground">Loading rack…</p>}
             </CardContent>
           </Card>
         </div>

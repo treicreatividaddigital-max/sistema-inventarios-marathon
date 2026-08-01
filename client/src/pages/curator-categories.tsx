@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
+import { useLocation } from "wouter";
 import { Plus, LayoutGrid, Pencil, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import {
@@ -63,24 +64,9 @@ type CategoryFormData = z.infer<typeof categorySchema>;
 
 export default function CuratorCategoriesPage() {
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
   const isReadOnly = user?.role === "ADMIN" || user?.role === "USER";
   const canDeleteCatalog = user?.isMasterCurator === true;
-  if (isReadOnly) {
-    return (
-      <div className="space-y-6">
-        <div>
-          <h1 className="text-3xl font-semibold">Categories</h1>
-          <p className="text-muted-foreground mt-2">Read-only access.</p>
-        </div>
-        <Card>
-          <CardHeader>
-            <CardTitle>Access denied</CardTitle>
-            <CardDescription>Only curators can manage catalogs.</CardDescription>
-          </CardHeader>
-        </Card>
-      </div>
-    );
-  }
 
   const { toast } = useToast();
   const [isDialogOpen, setIsDialogOpen] = useState(false);
@@ -224,13 +210,15 @@ export default function CuratorCategoriesPage() {
         <div>
           <h1 className="text-3xl font-semibold">Categories</h1>
           <p className="text-muted-foreground mt-2">
-            Manage product categories
+            {isReadOnly ? "Read-only access." : "Manage product categories"}
           </p>
         </div>
-        <Button onClick={() => handleOpenDialog()} data-testid="button-new-category">
-          <Plus className="h-4 w-4 mr-2" />
-          New Category
-        </Button>
+        {!isReadOnly && (
+          <Button onClick={() => handleOpenDialog()} data-testid="button-new-category">
+            <Plus className="h-4 w-4 mr-2" />
+            New Category
+          </Button>
+        )}
       </div>
 
       {categories.length === 0 ? (
@@ -239,18 +227,25 @@ export default function CuratorCategoriesPage() {
             <LayoutGrid className="h-16 w-16 text-muted-foreground mb-4" />
             <p className="text-lg text-muted-foreground">No categories yet</p>
             <p className="text-sm text-muted-foreground mt-2">
-              Create your first category to get started
+              {isReadOnly ? "No categories have been created yet." : "Create your first category to get started"}
             </p>
-            <Button className="mt-6" onClick={() => handleOpenDialog()} data-testid="button-create-first">
-              <Plus className="h-4 w-4 mr-2" />
-              Create Category
-            </Button>
+            {!isReadOnly && (
+              <Button className="mt-6" onClick={() => handleOpenDialog()} data-testid="button-create-first">
+                <Plus className="h-4 w-4 mr-2" />
+                Create Category
+              </Button>
+            )}
           </CardContent>
         </Card>
       ) : (
         <div className="grid gap-6 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
           {categories.map((category) => (
-            <Card key={category.id} data-testid={`card-category-${category.id}`}>
+            <Card
+              key={category.id}
+              data-testid={`card-category-${category.id}`}
+              className="cursor-pointer transition-colors hover:bg-accent/50 hover:border-primary/30"
+              onClick={() => setLocation(`/search?categoryId=${encodeURIComponent(category.id)}`)}
+            >
               <CardHeader>
                 <CardTitle>{category.name}</CardTitle>
                 {category.description && (
@@ -259,30 +254,35 @@ export default function CuratorCategoriesPage() {
                   </CardDescription>
                 )}
               </CardHeader>
-              <CardContent className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => handleOpenDialog(category)}
-                  data-testid={`button-edit-${category.id}`}
+              {!isReadOnly && (
+                <CardContent
+                  className="flex gap-2"
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  <Pencil className="h-3 w-3 mr-2" />
-                  Edit
-                </Button>
-                {canDeleteCatalog && (
-<Button
-                  variant="outline"
-                  size="sm"
-                  className="flex-1"
-                  onClick={() => setDeletingCategory(category)}
-                  data-testid={`button-delete-${category.id}`}
-                >
-                  <Trash2 className="h-3 w-3 mr-2" />
-                  Delete
-                </Button>
-)}
-              </CardContent>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="flex-1"
+                    onClick={() => handleOpenDialog(category)}
+                    data-testid={`button-edit-${category.id}`}
+                  >
+                    <Pencil className="h-3 w-3 mr-2" />
+                    Edit
+                  </Button>
+                  {canDeleteCatalog && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="flex-1"
+                      onClick={() => setDeletingCategory(category)}
+                      data-testid={`button-delete-${category.id}`}
+                    >
+                      <Trash2 className="h-3 w-3 mr-2" />
+                      Delete
+                    </Button>
+                  )}
+                </CardContent>
+              )}
             </Card>
           ))}
         </div>

@@ -156,6 +156,24 @@ export default function SearchPage() {
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const visiblePages = buildVisiblePages(currentPage, totalPages);
 
+  // Restore scroll position when returning from garment detail page
+  useEffect(() => {
+    if (!garmentsLoading && items.length > 0) {
+      const savedScrollY = sessionStorage.getItem('searchScrollY');
+      if (savedScrollY) {
+        requestAnimationFrame(() => {
+          window.scrollTo(0, parseInt(savedScrollY, 10));
+          sessionStorage.removeItem('searchScrollY');
+        });
+      }
+    }
+  }, [garmentsLoading, items.length]);
+
+  // Clear scroll restoration if user changes filters/search (navigate away from current results)
+  useEffect(() => {
+    sessionStorage.removeItem('searchScrollY');
+  }, [currentPage, debouncedSearchQuery, filters]);
+
   const { data: categories = [] } = useQuery<Category[]>({
     queryKey: ["/api/categories"],
     staleTime: 5 * 60_000,

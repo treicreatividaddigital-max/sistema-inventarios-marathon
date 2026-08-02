@@ -72,11 +72,16 @@ export function GarmentCard({ garment }: GarmentCardProps) {
     <Card className="hover-elevate active-elevate-2 h-full relative" data-testid={`card-garment-${garment.id}`}>
       <CardHeader className="pb-3">
         <div className="flex items-start justify-between gap-2 mb-2">
-          <Link href={`/garment/${garment.code}`} data-testid={`link-garment-${garment.id}`}>
-            <CardTitle className="text-base font-mono hover:underline cursor-pointer" data-testid={`text-code-${garment.id}`}>
-              {garment.code}
-            </CardTitle>
-          </Link>
+          <div
+            onClick={() => sessionStorage.setItem('searchScrollY', window.scrollY.toString())}
+            className="flex-1 cursor-pointer"
+          >
+            <Link href={`/garment/${garment.code}`} data-testid={`link-garment-${garment.id}`}>
+              <CardTitle className="text-base font-mono hover:underline cursor-pointer" data-testid={`text-code-${garment.id}`}>
+                {garment.code}
+              </CardTitle>
+            </Link>
+          </div>
           <div className="flex items-center gap-1.5 shrink-0">
             <Badge className={`${getStatusColor(garment.status)} text-white`} data-testid={`badge-status-${garment.id}`}>
               {getStatusLabel(garment.status)}

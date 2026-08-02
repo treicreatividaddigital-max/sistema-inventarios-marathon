@@ -94,7 +94,25 @@ export default function SearchPage() {
     setCurrentPage(1);
   }, [debouncedSearchQuery, filters]);
 
-  // Update URL when search params change (replace to avoid polluting browser history)
+  // Sync URL on initial load from wouter (read-only, don't push back)
+  useEffect(() => {
+    // On mount, just ensure state matches URL; don't navigate
+    const params = new URLSearchParams(search);
+    const urlQ = params.get("q") || "";
+    const urlPage = params.get("page") ? Math.max(1, parseInt(params.get("page")!, 10)) : 1;
+    const urlFilters: any = {};
+    params.forEach((value, key) => {
+      if (key !== "q" && key !== "page" && value) {
+        urlFilters[key] = value;
+      }
+    });
+
+    if (urlQ !== searchQuery) setSearchQuery(urlQ);
+    if (urlPage !== currentPage) setCurrentPage(urlPage);
+    if (JSON.stringify(urlFilters) !== JSON.stringify(filters)) setFilters(urlFilters);
+  }, [search]); // Only sync when URL (search) changes, not when state changes
+
+  // Update URL when search params change (push = keep history)
   useEffect(() => {
     const params = new URLSearchParams();
     if (debouncedSearchQuery) params.set("q", debouncedSearchQuery);
@@ -104,7 +122,7 @@ export default function SearchPage() {
     if (currentPage > 1) params.set("page", String(currentPage));
 
     const newUrl = params.toString() ? `/search?${params.toString()}` : "/search";
-    setLocation(newUrl, { replace: true });
+    setLocation(newUrl); // Push = preserve history for back button
   }, [debouncedSearchQuery, filters, currentPage, setLocation]);
 
   const offset = (currentPage - 1) * PAGE_SIZE;

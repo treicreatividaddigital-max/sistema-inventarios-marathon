@@ -61,6 +61,7 @@ export default function SearchPage() {
   const [_location, setLocation] = useLocation();
   const search = useSearch(); // Read query string from wouter
   const resumeRefreshRef = useRef(0);
+  const isFirstRenderRef = useRef(true);
 
   // Parse URL query params once
   const initialParams = useMemo(() => new URLSearchParams(search), [search]);
@@ -91,7 +92,11 @@ export default function SearchPage() {
   }, [searchQuery]);
 
   useEffect(() => {
-    setCurrentPage(1);
+    if (isFirstRenderRef.current) {
+      isFirstRenderRef.current = false;
+      return; // Skip reset on first mount to preserve page from URL
+    }
+    setCurrentPage(1); // Reset to page 1 only on real user changes to search/filters
   }, [debouncedSearchQuery, filters]);
 
   // Sync URL on initial load from wouter (read-only, don't push back)

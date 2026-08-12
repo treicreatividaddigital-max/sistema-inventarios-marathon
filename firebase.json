@@ -7,6 +7,18 @@
         "firebase.json",
         "**/.*",
         "**/node_modules/**"
+      ],
+      "redirects": [
+        {
+          "source": "/garment/:code",
+          "destination": "https://ms-inv-prod-2f5rvkbkbq-uc.a.run.app/garment/:code",
+          "type": 302
+        },
+        {
+          "source": "/rack/:code",
+          "destination": "https://ms-inv-prod-2f5rvkbkbq-uc.a.run.app/rack/:code",
+          "type": 302
+        }
       ]
     }
   ]

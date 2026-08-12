@@ -32,6 +32,7 @@ import { PrinterStatusCard } from "@/components/printer-status-card";
 import {
   buildQrValue,
   DEFAULT_THERMAL_LABEL_SETTINGS,
+  PUBLIC_LABEL_BASE_URL,
   THERMAL_LABEL_PRESETS,
   THERMAL_PRINT_STORAGE_KEY,
   type QrPayloadMode,
@@ -84,7 +85,7 @@ function readStoredSettings() {
     return {
       printerName: "",
       language: "tspl" as ThermalLanguage,
-      qrMode: "code" as QrPayloadMode,
+      qrMode: "url" as QrPayloadMode,
       presetKey: "40x25",
       settings: { ...DEFAULT_THERMAL_LABEL_SETTINGS },
     };
@@ -95,7 +96,10 @@ function readStoredSettings() {
     return {
       printerName: parsed.printerName || "",
       language: parsed.language === "zpl" ? "zpl" : "tspl",
-      qrMode: parsed.qrMode === "url" ? "url" : "code",
+      // Migración de una sola vez: el default anterior era "code", que imprimía el código en
+      // texto plano y dejaba el QR inservible al escanear. Se fuerza "url" una vez y a partir
+      // de ahí se respeta la elección deliberada del usuario.
+      qrMode: parsed.qrModeDefaultMigrated ? (parsed.qrMode === "code" ? "code" : "url") : "url",
       presetKey: parsed.presetKey || "40x25",
       settings: { ...DEFAULT_THERMAL_LABEL_SETTINGS, ...(parsed.settings || {}) },
     };
@@ -103,7 +107,7 @@ function readStoredSettings() {
     return {
       printerName: "",
       language: "tspl" as ThermalLanguage,
-      qrMode: "code" as QrPayloadMode,
+      qrMode: "url" as QrPayloadMode,
       presetKey: "40x25",
       settings: { ...DEFAULT_THERMAL_LABEL_SETTINGS },
     };
@@ -274,7 +278,7 @@ export default function CuratorPrintQRsPage() {
 
   useEffect(() => {
     if (typeof window === "undefined") return;
-    localStorage.setItem(THERMAL_PRINT_STORAGE_KEY, JSON.stringify({ printerName, language, qrMode, presetKey, settings }));
+    localStorage.setItem(THERMAL_PRINT_STORAGE_KEY, JSON.stringify({ printerName, language, qrMode, presetKey, settings, qrModeDefaultMigrated: true }));
   }, [printerName, language, qrMode, presetKey, settings]);
 
   const syncPrinterState = async ({ reconnect = false, silent = false } = {}) => {
@@ -382,7 +386,7 @@ export default function CuratorPrintQRsPage() {
   const selectedRackData = racks.filter((rack) => selectedRacks.includes(rack.id));
 
   const selectedLabels = useMemo<ThermalLabelInput[]>(() => {
-    const baseUrl = typeof window !== "undefined" ? window.location.origin : "";
+    const baseUrl = PUBLIC_LABEL_BASE_URL;
     return [
       ...selectedGarmentData.map((garment) => ({ code: garment.code, title: settings.title, qrValue: buildQrValue({ baseUrl, code: garment.code, mode: qrMode, entityPath: "garment" }) })),
       ...selectedRackData.map((rack) => ({ code: rack.code, title: settings.title, qrValue: buildQrValue({ baseUrl, code: rack.code, mode: qrMode, entityPath: "rack" }) })),
@@ -392,7 +396,7 @@ export default function CuratorPrintQRsPage() {
   const previewLabel = selectedLabels[0] || {
     code: "GAR-000",
     title: settings.title,
-    qrValue: buildQrValue({ baseUrl: typeof window !== "undefined" ? window.location.origin : "", code: "GAR-000", mode: qrMode, entityPath: "garment" }),
+    qrValue: buildQrValue({ baseUrl: PUBLIC_LABEL_BASE_URL, code: "GAR-000", mode: qrMode, entityPath: "garment" }),
   };
 
   const applyPreset = (key: string) => {
@@ -730,11 +734,11 @@ export default function CuratorPrintQRsPage() {
       <div id="print-area" className="hidden print:block">
         <div className="print-grid">
           {selectedGarmentData.map((garment) => {
-            const value = buildQrValue({ baseUrl: typeof window !== "undefined" ? window.location.origin : "", code: garment.code, mode: qrMode, entityPath: "garment" });
+            const value = buildQrValue({ baseUrl: PUBLIC_LABEL_BASE_URL, code: garment.code, mode: qrMode, entityPath: "garment" });
             return <div key={garment.id} className="print-item"><QRCodeSVG value={value} size={512} level="M" includeMargin={true} /><p className="mt-2 font-mono text-base font-semibold">{garment.code}</p>{garment.rack?.code ? <p className="text-sm text-muted-foreground">{garment.rack.code}</p> : null}</div>;
           })}
           {selectedRackData.map((rack) => {
-            const value = buildQrValue({ baseUrl: typeof window !== "undefined" ? window.location.origin : "", code: rack.code, mode: qrMode, entityPath: "rack" });
+            const value = buildQrValue({ baseUrl: PUBLIC_LABEL_BASE_URL, code: rack.code, mode: qrMode, entityPath: "rack" });
             return <div key={rack.id} className="print-item"><QRCodeSVG value={value} size={512} level="M" includeMargin={true} /><p className="mt-2 font-mono text-base font-semibold">{rack.code}</p><p className="text-sm text-muted-foreground">{rack.name} • {rack.zone}</p></div>;
           })}
         </div>

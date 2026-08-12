@@ -17,6 +17,7 @@ import { PrinterStatusCard } from "@/components/printer-status-card";
 import {
   buildQrValue,
   DEFAULT_THERMAL_LABEL_SETTINGS,
+  PUBLIC_LABEL_BASE_URL,
   THERMAL_LABEL_PRESETS,
   THERMAL_PRINT_STORAGE_KEY,
   type QrPayloadMode,
@@ -50,7 +51,7 @@ function readStoredSettings(): StoredState {
     return {
       printerName: "",
       language: "tspl",
-      qrMode: "code",
+      qrMode: "url",
       presetKey: "40x25",
       settings: { ...DEFAULT_THERMAL_LABEL_SETTINGS },
     };
@@ -61,7 +62,10 @@ function readStoredSettings(): StoredState {
     return {
       printerName: parsed.printerName || "",
       language: parsed.language === "zpl" ? "zpl" : "tspl",
-      qrMode: parsed.qrMode === "url" ? "url" : "code",
+      // Migración de una sola vez: el default anterior era "code", que imprimía el código en
+      // texto plano y dejaba el QR inservible al escanear. Se fuerza "url" una vez y a partir
+      // de ahí se respeta la elección deliberada del usuario.
+      qrMode: parsed.qrModeDefaultMigrated ? (parsed.qrMode === "code" ? "code" : "url") : "url",
       presetKey: parsed.presetKey || "40x25",
       settings: { ...DEFAULT_THERMAL_LABEL_SETTINGS, ...(parsed.settings || {}) },
     };
@@ -69,7 +73,7 @@ function readStoredSettings(): StoredState {
     return {
       printerName: "",
       language: "tspl",
-      qrMode: "code",
+      qrMode: "url",
       presetKey: "40x25",
       settings: { ...DEFAULT_THERMAL_LABEL_SETTINGS },
     };
@@ -105,7 +109,7 @@ export default function GarmentPrintPage() {
     if (typeof window === "undefined") return;
     localStorage.setItem(
       THERMAL_PRINT_STORAGE_KEY,
-      JSON.stringify({ printerName, language, qrMode, presetKey, settings }),
+      JSON.stringify({ printerName, language, qrMode, presetKey, settings, qrModeDefaultMigrated: true }),
     );
   }, [printerName, language, qrMode, presetKey, settings]);
 
@@ -199,7 +203,7 @@ export default function GarmentPrintPage() {
 
   const qrValue = useMemo(() => {
     return buildQrValue({
-      baseUrl: typeof window !== "undefined" ? window.location.origin : "",
+      baseUrl: PUBLIC_LABEL_BASE_URL,
       code: garment?.code || garmentCode,
       mode: qrMode,
       entityPath: "garment",

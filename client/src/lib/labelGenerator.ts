@@ -3,6 +3,13 @@ export type QrPayloadMode = "url" | "code";
 
 export const THERMAL_PRINT_STORAGE_KEY = "archive:thermal-print-settings:v2";
 
+// URL pública canónica que se graba en los QR impresos.
+// No usar window.location.origin: el QR queda impreso en papel para siempre, así que
+// imprimir desde localhost u otro origen dejaría etiquetas apuntando a un dominio muerto.
+export const PUBLIC_LABEL_BASE_URL =
+  (import.meta.env?.VITE_PUBLIC_BASE_URL as string | undefined)?.trim() ||
+  "https://ms-inv-prod-2f5rvkbkbq-uc.a.run.app";
+
 export interface ThermalLabelSettings {
   widthMm: number;
   heightMm: number;
